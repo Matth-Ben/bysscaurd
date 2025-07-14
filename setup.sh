@@ -85,7 +85,7 @@ const io = new Server(server, {
 app.use(cors());
 app.use(express.json());
 
-mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/discord-lite");
+mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:4567/discord-lite");
 
 io.on("connection", (socket) => {
   console.log("User connected: " + socket.id);

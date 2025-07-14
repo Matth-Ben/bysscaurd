@@ -41,7 +41,7 @@ NEXT_PUBLIC_BACKEND_URL=http://backend:4000
 
 ### Backend (.env)
 ```
-MONGO_URI=mongodb://mongo:4567/discord-lite
+MONGO_URI=mongodb://mongo:27017/discord-lite
 JWT_SECRET=your_jwt_secret
 GOOGLE_CLIENT_ID=your_google_client_id
 GOOGLE_CLIENT_SECRET=your_google_client_secret

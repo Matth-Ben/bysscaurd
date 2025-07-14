@@ -37,6 +37,7 @@ services:
     environment:
       - NODE_ENV=development
       - NEXT_TELEMETRY_DISABLED=1
+      - NEXT_PUBLIC_BACKEND_URL=http://backend:4000
     depends_on:
       - backend
     command: npm run dev

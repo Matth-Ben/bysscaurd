@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { signIn } from "next-auth/react";
+import { useRouter } from "next/navigation";
 
 export default function RegisterForm() {
   const [email, setEmail] = useState("");
@@ -10,13 +11,14 @@ export default function RegisterForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const router = useRouter();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError("");
     setSuccess(false);
-    const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000"}/auth/register`, {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, name, password }),
@@ -24,6 +26,10 @@ export default function RegisterForm() {
     if (res.ok) {
       setSuccess(true);
       setEmail(""); setName(""); setPassword("");
+      // Redirection vers la page de connexion après 2 secondes
+      setTimeout(() => {
+        router.push("/login");
+      }, 2000);
     } else {
       const data = await res.json();
       setError(data.error || "Erreur inconnue");
@@ -66,7 +72,7 @@ export default function RegisterForm() {
         S'inscrire avec Google
       </button>
       {error && <div className="text-red-600 text-sm mt-1">{error}</div>}
-      {success && <div className="text-green-600 text-sm mt-1">Inscription réussie ! Vous pouvez vous connecter.</div>}
+      {success && <div className="text-green-600 text-sm mt-1">Inscription réussie ! Redirection vers la page de connexion...</div>}
     </form>
   );
 } 
