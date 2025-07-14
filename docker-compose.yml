@@ -4,7 +4,7 @@ services:
   mongo:
     image: mongo
     ports:
-      - "27017:27017"
+      - "4567:27017"
     volumes:
       - ./mongo:/data/db
 
@@ -28,9 +28,7 @@ services:
     command: sh -c "npm install && node src/index.js"
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    build: ./frontend
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -38,6 +36,7 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=development
+      - NEXT_TELEMETRY_DISABLED=1
     depends_on:
       - backend
-    command: sh -c "npm install && npm run dev"
+    command: npm run dev
