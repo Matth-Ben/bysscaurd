@@ -10,11 +10,11 @@ export default function AuthButton() {
   }
 
   if (session) {
+    // Avatar personnalisé si disponible, sinon image NextAuth, sinon avatar par défaut
+    const avatar = (session.user as any)?.avatar || session.user?.image || "/avatars/avatar1.png";
     return (
       <div className="flex items-center gap-2">
-        {session.user?.image && (
-          <img src={session.user.image} alt="avatar" className="w-8 h-8 rounded-full" />
-        )}
+        <img src={avatar} alt="avatar" className="w-8 h-8 rounded-full" />
         <span>{session.user?.name}</span>
         <Link href="/profile" className="px-3 py-1 bg-gray-200 rounded">Profil</Link>
         <button onClick={() => signOut()} className="px-3 py-1 bg-gray-200 rounded">Se déconnecter</button>

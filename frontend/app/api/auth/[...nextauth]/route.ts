@@ -46,6 +46,44 @@ export const authOptions: NextAuthOptions = {
     strategy: "jwt",
   },
   secret: process.env.NEXTAUTH_SECRET,
+  callbacks: {
+    async session({ session, token, user }) {
+      // Copier l'avatar du token dans la session
+      if (token && typeof token === 'object' && 'avatar' in token) {
+        (session.user as any).avatar = (token as any).avatar;
+      }
+      // Pour Google, avatar = image
+      if (session.user && (session.user as any).image && !(session.user as any).avatar) {
+        (session.user as any).avatar = (session.user as any).image;
+      }
+      return session;
+    },
+    async jwt({ token, user, account, profile }) {
+      // Pour Credentials, l'avatar est dans user (issu du backend)
+      if (user && (user as any).avatar) {
+        (token as any).avatar = (user as any).avatar;
+      }
+      // Pour Google, avatar = image
+      if (user && (user as any).image && !(token as any).avatar) {
+        (token as any).avatar = (user as any).image;
+      }
+      // Synchroniser l'avatar à jour depuis le backend (si email présent)
+      if (token?.email) {
+        try {
+          const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000"}/auth/user?email=${encodeURIComponent(token.email)}`);
+          if (res.ok) {
+            const userData = await res.json();
+            if (userData.avatar) {
+              (token as any).avatar = userData.avatar;
+            }
+          }
+        } catch (e) {
+          // ignore erreur
+        }
+      }
+      return token;
+    },
+  },
 };
 
 const handler = NextAuth(authOptions);
