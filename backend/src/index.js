@@ -30,6 +30,9 @@ const userSchema = new mongoose.Schema({
   name: { type: String },
   password: { type: String, required: true }, // hashé
   avatar: { type: String, default: "/avatars/avatar1.png" }, // avatar par défaut
+  bio: { type: String, default: "" },
+  status: { type: String, default: "online" },
+  createdAt: { type: Date, default: Date.now },
 });
 const User = mongoose.models.User || mongoose.model("User", userSchema);
 
@@ -150,21 +153,25 @@ app.post("/auth/register", async (req, res) => {
   res.status(201).json({ id: user._id, name: user.name, email: user.email, avatar: user.avatar });
 });
 
-// Route : mise à jour du profil utilisateur (avatar)
+// Route : mise à jour du profil utilisateur (avatar, bio, status)
 app.post("/auth/profile", async (req, res) => {
-  const { email, avatar } = req.body;
-  if (!email || !avatar) {
-    return res.status(400).json({ error: "Email et avatar requis" });
+  const { email, avatar, bio, status } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: "Email requis" });
   }
+  const update = {};
+  if (avatar) update.avatar = avatar;
+  if (bio !== undefined) update.bio = bio;
+  if (status !== undefined) update.status = status;
   const user = await User.findOneAndUpdate(
     { email },
-    { avatar },
+    update,
     { new: true }
   );
   if (!user) {
     return res.status(404).json({ error: "Utilisateur non trouvé" });
   }
-  res.json({ id: user._id, name: user.name, email: user.email, avatar: user.avatar });
+  res.json({ id: user._id, name: user.name, email: user.email, avatar: user.avatar, bio: user.bio, status: user.status, createdAt: user.createdAt });
 });
 
 // Route : récupérer un utilisateur par email (pour avatar à jour)
@@ -173,7 +180,7 @@ app.get("/auth/user", async (req, res) => {
   if (!email) return res.status(400).json({ error: "Email requis" });
   const user = await User.findOne({ email });
   if (!user) return res.status(404).json({ error: "Utilisateur non trouvé" });
-  res.json({ name: user.name, email: user.email, avatar: user.avatar });
+  res.json({ name: user.name, email: user.email, avatar: user.avatar, bio: user.bio, status: user.status, createdAt: user.createdAt });
 });
 
 const PORT = process.env.PORT || 4000;

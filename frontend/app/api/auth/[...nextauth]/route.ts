@@ -48,9 +48,11 @@ export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
   callbacks: {
     async session({ session, token, user }) {
-      // Copier l'avatar du token dans la session
-      if (token && typeof token === 'object' && 'avatar' in token) {
-        (session.user as any).avatar = (token as any).avatar;
+      // Copier l'avatar, la bio et le statut du token dans la session
+      if (token && typeof token === 'object') {
+        if ('avatar' in token) (session.user as any).avatar = (token as any).avatar;
+        if ('bio' in token) (session.user as any).bio = (token as any).bio;
+        if ('status' in token) (session.user as any).status = (token as any).status;
       }
       // Pour Google, avatar = image
       if (session.user && (session.user as any).image && !(session.user as any).avatar) {
@@ -59,23 +61,23 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
     async jwt({ token, user, account, profile }) {
-      // Pour Credentials, l'avatar est dans user (issu du backend)
-      if (user && (user as any).avatar) {
-        (token as any).avatar = (user as any).avatar;
-      }
+      // Pour Credentials, l'avatar, la bio et le statut sont dans user (issu du backend)
+      if (user && (user as any).avatar) (token as any).avatar = (user as any).avatar;
+      if (user && (user as any).bio) (token as any).bio = (user as any).bio;
+      if (user && (user as any).status !== undefined) (token as any).status = (user as any).status;
       // Pour Google, avatar = image
       if (user && (user as any).image && !(token as any).avatar) {
         (token as any).avatar = (user as any).image;
       }
-      // Synchroniser l'avatar à jour depuis le backend (si email présent)
+      // Synchroniser l'avatar, la bio et le statut à jour depuis le backend (si email présent)
       if (token?.email) {
         try {
           const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000"}/auth/user?email=${encodeURIComponent(token.email)}`);
           if (res.ok) {
             const userData = await res.json();
-            if (userData.avatar) {
-              (token as any).avatar = userData.avatar;
-            }
+            if (userData.avatar) (token as any).avatar = userData.avatar;
+            if (userData.bio !== undefined) (token as any).bio = userData.bio;
+            if (userData.status !== undefined) (token as any).status = userData.status;
           }
         } catch (e) {
           // ignore erreur

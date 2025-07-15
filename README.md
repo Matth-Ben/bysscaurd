@@ -94,11 +94,13 @@ GOOGLE_CLIENT_SECRET=your_google_client_secret
 
 ### Avatars et profils
 - [x] Sélection d’un avatar parmi des images par défaut (page profil)
-- [x] Synchronisation immédiate de l’avatar dans le menu, le chat et la page profil après modification
-- [x] Modal sécurisée pour confirmation du changement d’avatar (mot de passe requis)
-- [x] Stockage de l’avatar dans la base utilisateur et synchronisation via NextAuth/JWT
+- [x] Bio personnalisée (modification et affichage dans le profil)
+- [x] Statut personnalisable (en ligne, absent, occupé, invisible) avec pastille de couleur sur l’avatar
+- [x] Synchronisation immédiate de l’avatar, de la bio et du statut dans le menu, le chat et la page profil après modification
+- [x] Modal sécurisée pour confirmation du changement de profil (mot de passe requis)
+- [x] Stockage de l’avatar, de la bio et du statut dans la base utilisateur et synchronisation via NextAuth/JWT
 - [ ] Avatar personnalisé (upload ou via Google)
-- [ ] Page profil enrichie (bio, statut, date d’inscription)
+- [x] Page profil enrichie (date d’inscription)
 - [ ] Statut en ligne/hors ligne/occupé
 
 ### Notifications
@@ -249,13 +251,15 @@ docker-compose up --build
 - **MongoDB** : localhost:4567 (MongoDB Compass)
 - **Logs** : `docker-compose logs -f [service]`
 
-## 👤 Gestion des avatars et du profil
+## 👤 Gestion des avatars, bio et statut
 
 - Chaque utilisateur peut choisir un avatar parmi une liste d’images par défaut depuis la page `/profile`.
+- La bio et le statut (en ligne, absent, occupé, invisible) sont modifiables et affichés dans le profil.
+- Le statut s’affiche par une pastille colorée sur l’avatar dans le menu (vert = en ligne, jaune = absent, rouge = occupé, gris = invisible).
 - Après modification, une modal s’ouvre pour demander le mot de passe (sécurité).
-- L’avatar est synchronisé instantanément dans toute l’interface (menu, chat, page profil) grâce à un refresh du JWT NextAuth.
-- Le backend expose une route `/auth/user?email=...` pour permettre au frontend de récupérer l’avatar à jour à chaque connexion ou modification.
-- L’avatar est stocké dans la base MongoDB côté utilisateur.
-- Le chat affiche l’avatar de chaque auteur de message (optimisé, pas de requête supplémentaire).
+- L’avatar, la bio et le statut sont synchronisés instantanément dans toute l’interface (menu, chat, page profil) grâce à un refresh du JWT NextAuth.
+- Le backend expose une route `/auth/user?email=...` pour permettre au frontend de récupérer les infos à jour à chaque connexion ou modification.
+- Les données sont stockées dans la base MongoDB côté utilisateur.
+- Le chat affiche l’avatar et le statut de chaque auteur de message (optimisé, pas de requête supplémentaire).
 
-**À venir** : upload d’avatar personnalisé, bio, statut, etc.
+**À venir** : upload d’avatar personnalisé, date d’inscription, etc.

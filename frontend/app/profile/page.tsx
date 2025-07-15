@@ -40,6 +40,20 @@ export default function ProfilePage() {
   const [showModal, setShowModal] = useState(false);
   const [pendingAvatar, setPendingAvatar] = useState<string | null>(null);
   const [modalLoading, setModalLoading] = useState(false);
+  const [bio, setBio] = useState(((user as any)?.bio as string) || "");
+  // Initialisation du statut : si la valeur est undefined ou null, mettre 'online', sinon garder la valeur (y compris '')
+  const initialStatus = ((user as any)?.status !== undefined && (user as any)?.status !== null) ? (user as any)?.status : "online";
+  const [userStatus, setUserStatus] = useState(initialStatus);
+  
+  // Formatage de la date d'inscription
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('fr-FR', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  };
 
   if (status === "loading") {
     return <div className="p-8 text-center">Chargement du profil...</div>;
@@ -63,14 +77,14 @@ export default function ProfilePage() {
       const res = await fetch("http://localhost:4000/auth/profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: user.email, avatar: pendingAvatar }),
+        body: JSON.stringify({ email: user.email, avatar: pendingAvatar, bio, status: userStatus }),
       });
       if (!res.ok) throw new Error("Erreur lors de la mise à jour du profil");
       setSuccess(true);
       await signIn("credentials", { redirect: false, email: user.email, password });
       setShowModal(false);
     } catch (e) {
-      setError("Impossible de mettre à jour l'avatar ou mot de passe incorrect.");
+      setError("Impossible de mettre à jour le profil ou mot de passe incorrect.");
     } finally {
       setModalLoading(false);
     }
@@ -97,10 +111,42 @@ export default function ProfilePage() {
             />
           </div>
           <h1 className="text-2xl font-bold text-white mb-1">{user?.name}</h1>
-          <p className="text-gray-400 mb-4">{user?.email}</p>
+          <p className="text-gray-400 mb-1">{user?.email}</p>
+          <p className="text-gray-300 mb-2 italic">{bio || <span className='text-gray-500'>Aucune bio</span>}</p>
+          <div className="flex items-center gap-2 mb-4">
+            <span className={`inline-block w-3 h-3 rounded-full ${userStatus === "online" ? "bg-green-500" : userStatus === "away" ? "bg-yellow-400" : userStatus === "busy" ? "bg-red-500" : "bg-gray-400"}`}></span>
+            <span className="text-gray-300 text-sm">{userStatus === "online" ? "En ligne" : userStatus === "away" ? "Absent" : userStatus === "busy" ? "Occupé" : "Invisible"}</span>
+          </div>
+          {(user as any)?.createdAt && (
+            <p className="text-gray-500 text-xs mb-4">Membre depuis le {formatDate((user as any).createdAt)}</p>
+          )}
           <div className="mb-6 w-full flex flex-col items-center">
             <span className="text-gray-300 mb-2">Choisissez votre avatar :</span>
             <AvatarSelector value={avatar} onChange={setAvatar} />
+          </div>
+          <div className="w-full flex flex-col gap-3 mb-4">
+            <label className="text-gray-300 text-sm">Bio :</label>
+            <textarea
+              value={bio}
+              onChange={e => setBio(e.target.value)}
+              className="w-full p-2 rounded bg-[#36393f] text-white border-none focus:ring-2 focus:ring-[#5865f2]"
+              rows={2}
+              maxLength={160}
+              placeholder="Décris-toi en quelques mots..."
+            />
+          </div>
+          <div className="w-full flex flex-col gap-3 mb-4">
+            <label className="text-gray-300 text-sm">Statut :</label>
+            <select
+              value={userStatus}
+              onChange={e => setUserStatus(e.target.value)}
+              className="w-full p-2 rounded bg-[#36393f] text-white border-none focus:ring-2 focus:ring-[#5865f2]"
+            >
+              <option value="online">En ligne</option>
+              <option value="away">Absent</option>
+              <option value="busy">Occupé</option>
+              <option value="">Invisible</option>
+            </select>
           </div>
           <button
             onClick={handleSave}
