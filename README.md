@@ -47,51 +47,108 @@ GOOGLE_CLIENT_ID=your_google_client_id
 GOOGLE_CLIENT_SECRET=your_google_client_secret
 ```
 
-## ✅ Étapes accomplies
+## ✅ Fonctionnalités réalisées
 
-### 🟩 Étape 2 : Authentification ✅
-- ✅ Intégrer `next-auth` côté frontend
-- ✅ Ajouter un provider Google OAuth
-- ✅ Utiliser la stratégie `jwt`
-- ✅ Ajouter un bouton de login dans l'interface
-- ✅ Récupérer et stocker les infos utilisateur dans la session
-- ✅ **BONUS** : Ajout de l'authentification classique (email/mot de passe)
-- ✅ **BONUS** : Pages dédiées `/login` et `/register`
-- ✅ **BONUS** : Bouton "œil" pour afficher/masquer les mots de passe
-- ✅ **BONUS** : Page profil utilisateur `/profile`
-- ✅ **BONUS** : Menu dynamique (connexion/déconnexion selon l'état)
+### Authentification
+- [x] Auth Google via NextAuth.js
+- [x] Auth classique email/mot de passe (register/login)
+- [x] Hash des mots de passe (bcrypt)
+- [x] Session JWT persistante
+- [x] Page profil utilisateur
+- [x] Déconnexion sécurisée
+- [x] Pages dédiées `/login`, `/register`, `/profile`
+- [x] Bouton "œil" pour afficher/masquer le mot de passe
+- [x] Menu dynamique selon l'état de connexion
+- [x] Redirections UX après login/register
+- [x] Accessibilité et feedback utilisateur
 
-### 🟩 Étape 3 : Backend API de base ✅
-- ✅ Créer une API Express avec un endpoint `/`
-- ✅ Ajouter `socket.io` et écouter les connexions
-- ✅ Connecter à MongoDB (via `mongoose`)
-- ✅ Ajouter une route `/auth/login` pour l'authentification classique
-- ✅ Ajouter une route `/auth/register` pour l'inscription
-- ✅ Configuration CORS pour le frontend
-- ✅ Hash des mots de passe avec bcrypt
+### Backend API
+- [x] API Express avec endpoint `/`
+- [x] Routes `/auth/login` et `/auth/register`
+- [x] Connexion MongoDB (Mongoose)
+- [x] Configuration CORS
+- [x] Socket.io serveur WebSocket
+- [x] Stockage des messages dans MongoDB
+- [x] Broadcast des messages à tous les clients
+- [x] Historique des 50 derniers messages à la connexion
 
-## 🚧 Étapes restantes
+### Chat temps réel
+- [x] Connexion WebSocket côté client (Socket.io)
+- [x] Affichage de l'historique des messages
+- [x] Affichage en temps réel des nouveaux messages
+- [x] Formulaire d'envoi de message
+- [x] Désactivation du chat si non connecté
+- [x] UX moderne et responsive
 
-### 🟨 Étape 4 : WebSocket
-- ⏳ Créer la logique client/serveur pour l'échange de messages en temps réel
-- ⏳ Le frontend se connecte à `ws://localhost:4000` via Socket.io
-- ⏳ Gérer les événements `message`, `connect`, `disconnect`
+### Système de salons (channels)
+- [x] Création de salons texte (channels) via la sidebar
+- [x] Liste dynamique des salons disponibles (affichage façon Discord)
+- [x] Navigation entre les salons et affichage du chat correspondant
+- [x] Historique des messages par salon
+- [x] Style Discord pour la sidebar et la sélection des salons
+- [ ] Permissions par salon (admin, membres, invités)
+- [ ] Salons privés
+- [ ] Gestion avancée des salons (suppression, renommage)
+- [ ] Affichage des membres par salon
+- [ ] Audio/vocal par salon
 
-### 🟨 Étape 5 : Système de chat
-- ⏳ Implémenter un salon par défaut
-- ⏳ Stocker les messages dans MongoDB
-- ⏳ Afficher les messages en live sur le frontend
+### Avatars et profils
+- [x] Sélection d’un avatar parmi des images par défaut (page profil)
+- [x] Synchronisation immédiate de l’avatar dans le menu, le chat et la page profil après modification
+- [x] Modal sécurisée pour confirmation du changement d’avatar (mot de passe requis)
+- [x] Stockage de l’avatar dans la base utilisateur et synchronisation via NextAuth/JWT
+- [ ] Avatar personnalisé (upload ou via Google)
+- [ ] Page profil enrichie (bio, statut, date d’inscription)
+- [ ] Statut en ligne/hors ligne/occupé
 
-### 🟨 Étape 6 : Audio (plus tard)
-- ⏳ Intégrer WebRTC ou mediasoup
-- ⏳ Optimiser la bande passante avec le codec `Opus`
-- ⏳ Ajouter la détection de voix / mute / volume
-- ⏳ Gérer l'ajout d'utilisateurs dans des rooms vocales
+### Notifications
+- [ ] Notification visuelle lors de nouveaux messages (badge, highlight)
+- [ ] Notification sonore optionnelle
+- [ ] Notification navigateur (Web Notification API)
+- [ ] Mention @user avec notification ciblée
 
-### 🟨 Étape 7 : Gamification (bonus)
-- ⏳ Ajouter des niveaux, XP, badges
-- ⏳ Ajouter des quêtes ou des objectifs
-- ⏳ Sauvegarder la progression dans la base de données
+### Liste des membres connectés
+- [ ] Affichage en temps réel des membres présents dans chaque salon
+- [ ] Statut de connexion (en ligne, hors ligne, en train d’écrire…)
+
+### Expérience de chat enrichie
+- [ ] Système de reply/citation de message
+- [ ] Édition et suppression de ses propres messages
+- [ ] Réactions (emoji) sur les messages
+- [ ] Détection et preview des liens (OpenGraph)
+- [ ] Scroll automatique vers le dernier message (amélioré)
+
+### Modération
+- [ ] Rôles (admin, modérateur, membre)
+- [ ] Bannissement/silence d’un utilisateur
+- [ ] Suppression de messages par les modérateurs
+
+### Mobile & Responsive
+- [ ] Interface responsive mobile/tablette (PWA)
+
+### Audio/Vocal
+- [ ] Salons vocaux (WebRTC ou mediasoup)
+- [ ] Affichage des utilisateurs en vocal
+- [ ] Mute/unmute, gestion du volume
+- [ ] Indicateur de prise de parole
+
+### Gamification
+- [ ] Système de niveaux/XP par activité
+- [ ] Badges, succès, quêtes
+- [ ] Classement des membres les plus actifs
+
+### Fichiers & médias
+- [ ] Envoi de fichiers/images dans le chat
+- [ ] Preview d’images et de vidéos
+- [ ] Limite de taille/configuration
+
+### Recherche
+- [ ] Recherche de messages par mot-clé
+- [ ] Recherche d’utilisateurs ou de salons
+
+### Historique & archivage
+- [ ] Chargement progressif de l’historique (scroll infini)
+- [ ] Archivage automatique des vieux salons/messages
 
 ## 📁 Structure du projet
 
@@ -109,7 +166,8 @@ discord-lite/
 │   │   │   ├── LoginForm.tsx
 │   │   │   ├── RegisterForm.tsx
 │   │   │   ├── MenuLinks.tsx
-│   │   │   └── SessionProviderClient.tsx
+│   │   │   ├── SessionProviderClient.tsx
+│   │   │   └── Chat.tsx
 │   │   ├── login/page.tsx
 │   │   ├── register/page.tsx
 │   │   ├── profile/page.tsx
@@ -190,3 +248,14 @@ docker-compose up --build
 - **Backend** : http://localhost:4000
 - **MongoDB** : localhost:4567 (MongoDB Compass)
 - **Logs** : `docker-compose logs -f [service]`
+
+## 👤 Gestion des avatars et du profil
+
+- Chaque utilisateur peut choisir un avatar parmi une liste d’images par défaut depuis la page `/profile`.
+- Après modification, une modal s’ouvre pour demander le mot de passe (sécurité).
+- L’avatar est synchronisé instantanément dans toute l’interface (menu, chat, page profil) grâce à un refresh du JWT NextAuth.
+- Le backend expose une route `/auth/user?email=...` pour permettre au frontend de récupérer l’avatar à jour à chaque connexion ou modification.
+- L’avatar est stocké dans la base MongoDB côté utilisateur.
+- Le chat affiche l’avatar de chaque auteur de message (optimisé, pas de requête supplémentaire).
+
+**À venir** : upload d’avatar personnalisé, bio, statut, etc.
