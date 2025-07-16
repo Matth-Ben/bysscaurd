@@ -55,6 +55,22 @@ export default function ProfilePage() {
     });
   };
 
+  // Construire l'URL de l'avatar (gérer les avatars uploadés et par défaut)
+  const getAvatarUrl = (avatarPath: string) => {
+    if (avatarPath.startsWith('http')) {
+      if (avatarPath.includes('localhost:3000/uploads')) {
+        return avatarPath.replace('localhost:3000', 'localhost:4000');
+      }
+      return avatarPath;
+    }
+    // Si c'est un avatar uploadé (commence par /uploads/)
+    if (avatarPath.startsWith('/uploads/')) {
+      return `http://localhost:4000${avatarPath}`;
+    }
+    // Sinon, c'est un avatar par défaut
+    return `http://localhost:3000${avatarPath}`;
+  };
+
   if (status === "loading") {
     return <div className="p-8 text-center">Chargement du profil...</div>;
   }
@@ -102,7 +118,7 @@ export default function ProfilePage() {
         <div className="bg-[#23272a] rounded-lg shadow-lg p-8 flex flex-col items-center w-full max-w-md">
           <div className="mb-6">
             <img
-              src={avatar}
+              src={getAvatarUrl(avatar)}
               alt="Avatar"
               width={96}
               height={96}
@@ -122,7 +138,7 @@ export default function ProfilePage() {
           )}
           <div className="mb-6 w-full flex flex-col items-center">
             <span className="text-gray-300 mb-2">Choisissez votre avatar :</span>
-            <AvatarSelector value={avatar} onChange={setAvatar} />
+            <AvatarSelector value={avatar} onChange={setAvatar} userEmail={user?.email || ""} />
           </div>
           <div className="w-full flex flex-col gap-3 mb-4">
             <label className="text-gray-300 text-sm">Bio :</label>
