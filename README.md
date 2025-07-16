@@ -86,10 +86,10 @@ GOOGLE_CLIENT_SECRET=your_google_client_secret
 - [x] Navigation entre les salons et affichage du chat correspondant
 - [x] Historique des messages par salon
 - [x] Style Discord pour la sidebar et la sélection des salons
-- [ ] Permissions par salon (admin, membres, invités)
-- [ ] Salons privés
-- [ ] Gestion avancée des salons (suppression, renommage)
-- [ ] Affichage des membres par salon
+- [x] Permissions par salon (admin, membres, invités)
+- [x] Salons privés
+- [x] Gestion avancée des salons (suppression, renommage)
+- [x] Affichage des membres par salon
 - [ ] Audio/vocal par salon
 
 ### Avatars et profils
@@ -99,9 +99,8 @@ GOOGLE_CLIENT_SECRET=your_google_client_secret
 - [x] Synchronisation immédiate de l’avatar, de la bio et du statut dans le menu, le chat et la page profil après modification
 - [x] Modal sécurisée pour confirmation du changement de profil (mot de passe requis)
 - [x] Stockage de l’avatar, de la bio et du statut dans la base utilisateur et synchronisation via NextAuth/JWT
-- [ ] Avatar personnalisé (upload ou via Google)
+- [x] Avatar personnalisé (upload ou via Google)
 - [x] Page profil enrichie (date d’inscription)
-- [ ] Statut en ligne/hors ligne/occupé
 
 ### Notifications
 - [ ] Notification visuelle lors de nouveaux messages (badge, highlight)
