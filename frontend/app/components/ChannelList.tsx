@@ -6,6 +6,7 @@ interface Channel {
   _id: string;
   name: string;
   createdAt: string;
+  icon?: string;
 }
 
 interface ChannelListProps {
@@ -14,6 +15,23 @@ interface ChannelListProps {
   onSelectChannel: (channel: string) => void;
   onCreateChannel: (name: string) => Promise<void>;
 }
+
+// Fonction utilitaire pour l’URL de l’icône du salon (comme AuthButton)
+const getChannelIconUrl = (icon: string | undefined) => {
+  let iconUrl = icon || "/icons/default.png";
+  if (iconUrl.startsWith('http')) {
+    if (iconUrl.includes('localhost:3000/uploads')) {
+      iconUrl = iconUrl.replace('localhost:3000', 'localhost:4000');
+    } else {
+      // déjà une URL complète
+    }
+  } else if (iconUrl.startsWith('/uploads/')) {
+    iconUrl = `http://localhost:4000${iconUrl}`;
+  } else {
+    iconUrl = `/icons/default.png`;
+  }
+  return iconUrl;
+};
 
 export default function ChannelList({ channels, selectedChannel, onSelectChannel, onCreateChannel }: ChannelListProps) {
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -32,27 +50,9 @@ export default function ChannelList({ channels, selectedChannel, onSelectChannel
   };
 
   return (
-    <div className="w-64 bg-[#2f3136] flex flex-col h-screen">
-      {/* Header */}
-      <div className="p-4 border-b border-[#23272a]">
-        <h1 className="text-white font-bold text-lg">Discord Lite</h1>
-      </div>
-
+    <div className="bg-[#2f3136] flex flex-col h-screen">
       {/* Channels Section */}
       <div className="flex-1 p-4">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-gray-300 font-semibold text-sm uppercase tracking-wide">Salons</h2>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="text-gray-400 hover:text-white transition-colors p-1"
-            title="Créer un salon"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-          </button>
-        </div>
-
         {/* Channel List */}
         <div className="space-y-1">
           {channels.length === 0 ? (
@@ -71,23 +71,50 @@ export default function ChannelList({ channels, selectedChannel, onSelectChannel
               </button>
             </div>
           ) : (
-            channels.map((channel) => (
-              <button
-                key={channel._id}
-                onClick={() => onSelectChannel(channel.name)}
-                className={`w-full text-left px-3 py-2 rounded-md transition-colors flex items-center gap-2 ${
-                  selectedChannel === channel.name
-                    ? "bg-[#5865f2] text-white"
-                    : "text-gray-300 hover:bg-[#36393f] hover:text-white"
-                }`}
-              >
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h4l4 4 4-4h4c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/>
-                </svg>
-                <span className="font-medium">#{channel.name}</span>
-              </button>
-            ))
+            channels.map((channel) => {
+              const iconUrl = getChannelIconUrl(channel.icon);
+              return (
+                <div key={channel._id || channel.name} className="relative group">
+                  <button
+                    onClick={() => onSelectChannel(channel.name)}
+                    className={`w-12 h-12 flex items-center justify-center rounded-2xl mb-2 transition-all border-2 ${
+                      selectedChannel === channel.name
+                        ? "bg-[#5865f2] border-[#5865f2]"
+                        : "bg-[#36393f] border-transparent hover:bg-[#40444b]"
+                    }`}
+                    style={{ position: 'relative' }}
+                  >
+                    <img src={iconUrl} alt="avatar" className="w-8 h-8 rounded-full" />
+                  </button>
+                  {/* Tooltip Discord-like */}
+                  <div className="absolute left-14 top-1/2 -translate-y-1/2 z-10 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200">
+                    <div className="bg-[#23272a] text-white text-xs px-3 py-2 rounded shadow-lg whitespace-nowrap border border-[#40444b]">
+                      #{channel.name}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
           )}
+          
+          {/* Bouton d'ajout de salon */}
+          <div className="relative group">
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="w-12 h-12 flex items-center justify-center rounded-2xl mb-2 transition-all border-2 bg-[#36393f] border-transparent hover:bg-[#40444b] hover:border-[#5865f2]"
+              title="Créer un salon"
+            >
+              <svg className="w-6 h-6 text-gray-400 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+            </button>
+            {/* Tooltip Discord-like */}
+            <div className="absolute left-14 top-1/2 -translate-y-1/2 z-10 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200">
+              <div className="bg-[#23272a] text-white text-xs px-3 py-2 rounded shadow-lg whitespace-nowrap border border-[#40444b]">
+                Créer un salon
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

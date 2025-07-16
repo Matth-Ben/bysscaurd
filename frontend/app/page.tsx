@@ -5,6 +5,7 @@ import Chat from "./components/Chat";
 import ChannelList from "./components/ChannelList";
 import NoChannelSelected from "./components/NoChannelSelected";
 import { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
 
 interface Channel {
   _id: string;
@@ -13,18 +14,21 @@ interface Channel {
 }
 
 export default function Home() {
+  const { data: session } = useSession();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Charger les salons au démarrage
   useEffect(() => {
-    fetchChannels();
-  }, []);
+    if (session?.user?.email) {
+      fetchChannels(session.user.email);
+    }
+  }, [session?.user?.email]);
 
-  const fetchChannels = async () => {
+  const fetchChannels = async (userEmail: string) => {
     try {
-      const response = await fetch("http://localhost:4000/channels");
+      const response = await fetch(`http://localhost:4000/channels?userEmail=${encodeURIComponent(userEmail)}`);
       if (response.ok) {
         const channelsData = await response.json();
         setChannels(channelsData);
@@ -45,7 +49,10 @@ export default function Home() {
       const response = await fetch("http://localhost:4000/channels", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ 
+          name,
+          createdBy: session?.user?.email || "anonymous"
+        }),
       });
 
       if (response.ok) {
@@ -88,7 +95,14 @@ export default function Home() {
         </header>
         <main className="flex flex-1">
           {selectedChannel ? (
-            <Chat channel={selectedChannel} />
+            <Chat 
+              channel={selectedChannel}
+              channels={channels}
+              setChannels={setChannels}
+              fetchChannels={fetchChannels}
+              setSelectedChannel={setSelectedChannel}
+              session={session}
+            />
           ) : (
             <NoChannelSelected />
           )}
