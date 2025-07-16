@@ -5,6 +5,9 @@ import mongoose from "mongoose";
 import cors from "cors";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 
 dotenv.config();
 
@@ -21,6 +24,38 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json());
+
+// Configuration multer pour l'upload d'avatars
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = 'uploads/avatars';
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'avatar-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB max
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Seules les images sont autorisées'));
+    }
+  }
+});
+
+// Servir les fichiers uploadés statiquement
+app.use('/uploads', express.static('uploads'));
 
 mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/discord-lite");
 
@@ -181,6 +216,41 @@ app.get("/auth/user", async (req, res) => {
   const user = await User.findOne({ email });
   if (!user) return res.status(404).json({ error: "Utilisateur non trouvé" });
   res.json({ name: user.name, email: user.email, avatar: user.avatar, bio: user.bio, status: user.status, createdAt: user.createdAt });
+});
+
+// Route temporaire : corriger les avatars existants
+app.post("/auth/fix-avatars", async (req, res) => {
+  try {
+    const users = await User.find({ avatar: { $regex: '^/uploads/' } });
+    for (const user of users) {
+      user.avatar = `http://localhost:4000${user.avatar}`;
+      await user.save();
+    }
+    res.json({ message: `${users.length} avatars corrigés` });
+  } catch (error) {
+    res.status(500).json({ error: "Erreur lors de la correction des avatars" });
+  }
+});
+
+// Route : upload d'un avatar
+app.post("/auth/upload-avatar", upload.single('avatar'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "Aucun fichier trouvé" });
+  }
+  const user = await User.findOne({ email: req.body.email });
+  if (!user) {
+    // Clean up the uploaded file
+    fs.unlink(req.file.path, (err) => {
+      if (err) {
+        console.error("Error deleting uploaded file:", err);
+      }
+    });
+    return res.status(404).json({ error: "Utilisateur non trouvé" });
+  }
+  const avatarPath = `http://localhost:4000/uploads/avatars/${req.file.filename}`;
+  user.avatar = avatarPath;
+  await user.save();
+  res.json({ message: "Avatar uploadé avec succès", avatar: user.avatar });
 });
 
 const PORT = process.env.PORT || 4000;

@@ -3,10 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   swcMinify: true,
-  experimental: {
-    appDir: true,
-  },
-  webpackDevMiddleware: config => {
+  webpackDevMiddleware: (config: any) => {
     config.watchOptions = {
       poll: 1000,
       aggregateTimeout: 300,
