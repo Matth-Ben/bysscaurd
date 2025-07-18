@@ -13,6 +13,9 @@ interface LinkPreviewProps {
   url: string;
 }
 
+// Cache pour éviter de refaire les mêmes requêtes
+const previewCache = new Map<string, LinkPreviewData>();
+
 export default function LinkPreview({ url }: LinkPreviewProps) {
   const [preview, setPreview] = useState<LinkPreviewData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -24,13 +27,24 @@ export default function LinkPreview({ url }: LinkPreviewProps) {
         setLoading(true);
         setError(false);
         
+        // Vérifier le cache d'abord
+        if (previewCache.has(url)) {
+          setPreview(previewCache.get(url)!);
+          setLoading(false);
+          return;
+        }
+        
         // Appel à l'API backend pour récupérer les métadonnées OpenGraph
         const response = await fetch(`http://localhost:4000/link-preview?url=${encodeURIComponent(url)}`);
         
         if (response.ok) {
           const data = await response.json();
+          
+          // Mettre en cache
+          previewCache.set(url, data);
           setPreview(data);
         } else {
+          console.error('Erreur API:', response.status, response.statusText);
           setError(true);
         }
       } catch (err) {
@@ -62,13 +76,16 @@ export default function LinkPreview({ url }: LinkPreviewProps) {
 
   if (error || !preview) {
     return (
-      <div className="mt-2 p-3 bg-[#40444b] rounded-lg border border-[#23272a]">
+      <div className="mt-2 p-3 bg-[#40444b] rounded-lg border border-[#23272a] hover:bg-[#4f545c] transition-colors">
         <a 
           href={url} 
           target="_blank" 
           rel="noopener noreferrer"
-          className="text-[#5865f2] hover:underline break-all"
+          className="text-[#5865f2] hover:underline break-all flex items-center gap-2"
         >
+          <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+          </svg>
           {url}
         </a>
       </div>

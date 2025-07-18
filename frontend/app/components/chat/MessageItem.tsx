@@ -139,9 +139,30 @@ export default function MessageItem({
 
   // Fonction pour détecter les liens dans le texte
   const extractLinks = (text: string) => {
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    // Regex améliorée pour détecter les URLs
+    const urlRegex = /(https?:\/\/[^\s<>"{}|\\^`\[\]]+)/gi;
     const matches = text.match(urlRegex);
-    return matches || [];
+    
+    if (!matches) return [];
+    
+    // Filtrer et nettoyer les URLs
+    return matches
+      .map(url => {
+        // Supprimer les caractères de ponctuation à la fin
+        let cleanUrl = url;
+        while (cleanUrl.endsWith('.') || cleanUrl.endsWith(',') || cleanUrl.endsWith('!') || cleanUrl.endsWith('?')) {
+          cleanUrl = cleanUrl.slice(0, -1);
+        }
+        return cleanUrl;
+      })
+      .filter(url => {
+        try {
+          new URL(url);
+          return true;
+        } catch {
+          return false;
+        }
+      });
   };
 
   // Fonction pour formater le contenu avec les mentions @ et les liens
@@ -160,24 +181,35 @@ export default function MessageItem({
         );
       }
       
-      // Détecter les liens dans cette partie
-      const urlRegex = /(https?:\/\/[^\s]+)/g;
+      // Détecter les liens dans cette partie avec la même logique que extractLinks
+      const urlRegex = /(https?:\/\/[^\s<>"{}|\\^`\[\]]+)/gi;
       const linkParts = part.split(urlRegex);
       
       return linkParts.map((linkPart, linkIndex) => {
         if (linkIndex % 2 === 1) {
-          // C'est un lien
-          return (
-            <a
-              key={`${index}-${linkIndex}`}
-              href={linkPart}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[#5865f2] hover:underline break-all"
-            >
-              {linkPart}
-            </a>
-          );
+          // C'est un lien - nettoyer l'URL
+          let cleanUrl = linkPart;
+          while (cleanUrl.endsWith('.') || cleanUrl.endsWith(',') || cleanUrl.endsWith('!') || cleanUrl.endsWith('?')) {
+            cleanUrl = cleanUrl.slice(0, -1);
+          }
+          
+          // Vérifier que c'est une URL valide
+          try {
+            new URL(cleanUrl);
+            return (
+              <a
+                key={`${index}-${linkIndex}`}
+                href={cleanUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#5865f2] hover:underline break-all"
+              >
+                {linkPart}
+              </a>
+            );
+          } catch {
+            return linkPart;
+          }
         }
         return linkPart;
       });
