@@ -5,6 +5,14 @@ import { socketService } from "../../services/socketService";
 import ChannelPermissions from "../channels/ChannelPermissions";
 import ChannelMembers from "../channels/ChannelMembers";
 import OnlineMembers from "../channels/OnlineMembers";
+import MessageItem from "./MessageItem";
+import MentionAutocomplete from "./MentionAutocomplete";
+
+interface Reaction {
+  emoji: string;
+  users: string[];
+  count: number;
+}
 
 interface Message {
   _id: string;
@@ -13,6 +21,10 @@ interface Message {
   channel: string;
   timestamp: string;
   avatar?: string;
+  editedAt?: string;
+  isEdited?: boolean;
+  replyTo?: string;
+  reactions?: Reaction[];
 }
 
 interface Props {
@@ -46,6 +58,10 @@ export default function Chat({
   const [showOnlineMembers, setShowOnlineMembers] = useState(true);
   const [userPermissions, setUserPermissions] = useState<any>(null);
   const [isChannelAdmin, setIsChannelAdmin] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [channelUsers, setChannelUsers] = useState<any[]>([]);
+  const [showMentionAutocomplete, setShowMentionAutocomplete] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [lastReadTimestamp, setLastReadTimestamp] = useState<Date | null>(null);
@@ -140,6 +156,12 @@ export default function Chat({
       setMessages(prev => prev.filter(msg => msg._id !== data.messageId));
     });
 
+    const unsubscribeMessageUpdate = socketService.onMessageUpdate((updatedMessage: Message) => {
+      setMessages(prev => prev.map(msg => 
+        msg._id === updatedMessage._id ? updatedMessage : msg
+      ));
+    });
+
     // Demander l'historique des messages pour ce salon
     console.log("Chat: Demande d'historique pour le salon:", channel);
     socketService.getMessageHistory(channel, 0, 50);
@@ -148,6 +170,7 @@ export default function Chat({
       unsubscribeMessage();
       unsubscribeHistory();
       unsubscribeDelete();
+      unsubscribeMessageUpdate();
     };
   }, [channel, socket]);
 
@@ -195,10 +218,11 @@ export default function Chat({
     }
   }, [messages, lastReadTimestamp]);
 
-  // Charger les permissions
+  // Charger les permissions et les utilisateurs du channel
   useEffect(() => {
     if (channel && session?.user?.email) {
       fetchUserPermissions();
+      fetchChannelUsers();
     }
   }, [channel, session?.user?.email]);
 
@@ -215,6 +239,20 @@ export default function Chat({
       }
     } catch (error) {
       console.error("Erreur lors du chargement des permissions:", error);
+    }
+  };
+
+  const fetchChannelUsers = async () => {
+    try {
+      const response = await fetch(
+        `http://localhost:4000/channels/${encodeURIComponent(channel)}/members?userEmail=${encodeURIComponent(session?.user?.email || "")}`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        setChannelUsers(data.members || []);
+      }
+    } catch (error) {
+      console.error("Erreur lors du chargement des utilisateurs:", error);
     }
   };
 
@@ -274,7 +312,12 @@ export default function Chat({
     if (!input.trim() || !socket) return;
     
     const user = session?.user?.name || session?.user?.email || "Anonyme";
-    const messageData = { user, content: input, channel };
+    const messageData = { 
+      user, 
+      content: input, 
+      channel,
+      replyTo: replyingTo?._id 
+    };
     console.log("Chat: Envoi du message", messageData);
     
     // Créer un message temporaire pour affichage immédiat
@@ -284,7 +327,8 @@ export default function Chat({
       content: input,
       channel,
       timestamp: new Date().toISOString(),
-      avatar: session?.user?.image || "/avatars/avatar1.png"
+      avatar: session?.user?.image || "/avatars/avatar1.png",
+      replyTo: replyingTo?._id
     };
     
     // Ajouter le message temporaire à l'affichage
@@ -293,6 +337,73 @@ export default function Chat({
     // Envoyer le message via Socket.io
     socketService.sendMessage(messageData);
     setInput("");
+    setReplyingTo(null);
+  };
+
+  const handleReply = (message: Message) => {
+    setReplyingTo(message);
+    // Focus sur l'input
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setInput(value);
+    
+    // Vérifier si on tape @ pour afficher l'autocomplétion
+    const atIndex = value.lastIndexOf('@');
+    if (atIndex !== -1) {
+      const afterAt = value.slice(atIndex + 1);
+      const hasSpaceAfterAt = afterAt.includes(' ');
+      
+      // Afficher l'autocomplétion seulement si on n'a pas d'espace après @
+      if (!hasSpaceAfterAt) {
+        setShowMentionAutocomplete(true);
+      } else {
+        setShowMentionAutocomplete(false);
+      }
+    } else {
+      setShowMentionAutocomplete(false);
+    }
+  };
+
+  const handleSelectUser = (user: any) => {
+    const atIndex = input.lastIndexOf('@');
+    if (atIndex !== -1) {
+      const beforeAt = input.slice(0, atIndex);
+      const afterAt = input.slice(atIndex + 1);
+      const afterSpace = afterAt.includes(' ') ? afterAt.slice(afterAt.indexOf(' ')) : '';
+      const username = user.name || user.email.split('@')[0];
+      const newInput = beforeAt + '@' + username + ' ' + afterSpace;
+      setInput(newInput);
+    }
+    setShowMentionAutocomplete(false);
+    
+    // Focus sur l'input
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
+  };
+
+  const handleInputKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === '@') {
+      setShowMentionAutocomplete(true);
+    } else if (e.key === 'Escape') {
+      setShowMentionAutocomplete(false);
+    } else if (showMentionAutocomplete && (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Enter' || e.key === 'Tab')) {
+      // Empêcher la propagation pour permettre la navigation dans l'autocomplétion
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+
+  const handleInputBlur = () => {
+    // Fermer l'autocomplétion après un délai pour permettre la sélection
+    setTimeout(() => {
+      setShowMentionAutocomplete(false);
+    }, 150);
   };
 
   const handleDeleteMessage = async (messageId: string) => {
@@ -368,7 +479,8 @@ export default function Chat({
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar relative" onScroll={handleScroll} ref={messagesContainerRef}>
+      <div className="flex-1 overflow-y-auto custom-scrollbar relative" onScroll={handleScroll} ref={messagesContainerRef}>
+        <div className="p-4 space-y-0">
         {/* Indicateur de chargement en haut */}
         {isLoadingMore && (
           <div className="flex justify-center py-4">
@@ -392,8 +504,11 @@ export default function Chat({
         ) : (
           <>
             {messages.map((msg, index) => {
-              const isNewMessage = lastReadTimestamp && new Date(msg.timestamp) > lastReadTimestamp;
+              const isNewMessage = !!(lastReadTimestamp && new Date(msg.timestamp) > lastReadTimestamp);
               const showDivider = isNewMessage && index === 0;
+              
+              // Trouver le message auquel on répond
+              const replyToMessage = msg.replyTo ? messages.find(m => m._id === msg.replyTo) : null;
               
               return (
                 <div key={msg._id}>
@@ -410,42 +525,15 @@ export default function Chat({
                   )}
                   
                   {/* Message */}
-                  <div className={`flex items-start gap-3 group hover:bg-[#36393f] rounded-lg p-2 -m-2 transition-colors ${
-                    isNewMessage ? 'bg-[#2b2d31] border-l-4 border-[#5865f2]' : ''
-                  }`}>
-                    <img
-                      src={getAvatarUrl(msg.avatar || "/avatars/avatar1.png")}
-                      alt={msg.user}
-                      className="w-10 h-10 rounded-full border-2 border-[#23272a] bg-[#23272a] flex-shrink-0"
-                    />
-                    <div className="flex flex-col min-w-0 flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-white font-semibold text-sm">{msg.user}</span>
-                        <span className="text-gray-400 text-xs">{new Date(msg.timestamp).toLocaleString('fr-FR', { 
-                          day: 'numeric', 
-                          month: 'numeric', 
-                          hour: '2-digit', 
-                          minute: '2-digit' 
-                        })}</span>
-                        {isNewMessage && (
-                          <span className="text-[#5865f2] text-xs font-medium">Nouveau</span>
-                        )}
-                      </div>
-                      <p className="text-gray-300 text-sm break-words">{msg.content}</p>
-                    </div>
-                    {/* Bouton de suppression pour les modérateurs/admins */}
-                    {userPermissions?.canDeleteMessages && (
-                      <button
-                        onClick={() => handleDeleteMessage(msg._id)}
-                        className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-400 transition-all p-1 rounded hover:bg-[#40444b]"
-                        title="Supprimer le message"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                    )}
-                  </div>
+                  <MessageItem
+                    message={msg}
+                    session={session}
+                    userPermissions={userPermissions}
+                    onReply={handleReply}
+                    getAvatarUrl={getAvatarUrl}
+                    isNewMessage={isNewMessage}
+                    replyToMessage={replyToMessage}
+                  />
                 </div>
               );
             })}
@@ -465,19 +553,55 @@ export default function Chat({
             </svg>
           </button>
         )}
+        </div>
       </div>
 
       {/* Input */}
-      <div className="p-4 border-t border-[#23272a] bg-[#36393f]">
-        <form onSubmit={handleSend} className="flex gap-3">
-          <input
-            type="text"
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            placeholder={session ? `Message #${channel}` : "Connectez-vous pour participer au chat"}
-            className="flex-1 p-3 rounded-lg bg-[#40444b] text-white border-none focus:ring-2 focus:ring-[#5865f2] placeholder-gray-400"
-            disabled={!session}
-          />
+      <div className="p-4 border-t border-[#23272a] bg-[#36393f] relative">
+        {/* Indicateur de réponse */}
+        {replyingTo && (
+          <div className="flex items-center justify-between p-2 mb-2 bg-[#40444b] rounded-lg">
+            <div className="flex items-center gap-2">
+              <span className="text-gray-400 text-sm">Répondre à</span>
+              <span className="text-white text-sm font-medium">{replyingTo.user}</span>
+              <span className="text-gray-400 text-sm">:</span>
+              <span className="text-gray-300 text-sm truncate max-w-xs">{replyingTo.content}</span>
+            </div>
+            <button
+              onClick={() => setReplyingTo(null)}
+              className="text-gray-400 hover:text-white transition-colors p-1"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        )}
+        
+        <form onSubmit={handleSend} className="flex gap-3 relative">
+          <div className="flex-1 relative">
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleInputKeyDown}
+              onBlur={handleInputBlur}
+              placeholder={session ? `Message #${channel}` : "Connectez-vous pour participer au chat"}
+              className="w-full p-3 rounded-lg bg-[#40444b] text-white border-none focus:ring-2 focus:ring-[#5865f2] placeholder-gray-400"
+              disabled={!session}
+            />
+            
+            {/* Autocomplétion des mentions */}
+            <MentionAutocomplete
+              inputValue={input}
+              onSelectUser={handleSelectUser}
+              users={channelUsers}
+              isVisible={showMentionAutocomplete}
+              onClose={() => setShowMentionAutocomplete(false)}
+            />
+          </div>
+          
           <button 
             type="submit" 
             disabled={!input.trim() || !session} 

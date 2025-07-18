@@ -8,6 +8,7 @@ class SocketService {
   private userJoinedListeners: Array<(data: { email: string; status: string; channel: string }) => void> = [];
   private userLeftListeners: Array<(data: { email: string; status: string; channel: string }) => void> = [];
   private statusChangeListeners: Array<(data: { email: string; status: string }) => void> = [];
+  private messageUpdateListeners: Array<(msg: any) => void> = [];
 
   connect(url: string = "http://localhost:4000"): Socket {
     if (!this.socket) {
@@ -68,6 +69,11 @@ class SocketService {
       console.log("SocketService: Statut utilisateur changé", data);
       this.statusChangeListeners.forEach(listener => listener(data));
     });
+
+    this.socket.on("message_updated", (msg: any) => {
+      console.log("SocketService: Message mis à jour", msg);
+      this.messageUpdateListeners.forEach(listener => listener(msg));
+    });
   }
 
   authenticate(email: string) {
@@ -105,6 +111,18 @@ class SocketService {
   deleteMessage(data: { messageId: string; channel: string }) {
     if (this.socket) {
       this.socket.emit("message_deleted", data);
+    }
+  }
+
+  editMessage(data: { messageId: string; content: string; channel: string }) {
+    if (this.socket) {
+      this.socket.emit("message_edited", data);
+    }
+  }
+
+  addReaction(data: { messageId: string; emoji: string; channel: string; action: 'add' | 'remove' }) {
+    if (this.socket) {
+      this.socket.emit("message_reaction", data);
     }
   }
 
@@ -165,6 +183,16 @@ class SocketService {
       const index = this.statusChangeListeners.indexOf(callback);
       if (index > -1) {
         this.statusChangeListeners.splice(index, 1);
+      }
+    };
+  }
+
+  onMessageUpdate(callback: (msg: any) => void) {
+    this.messageUpdateListeners.push(callback);
+    return () => {
+      const index = this.messageUpdateListeners.indexOf(callback);
+      if (index > -1) {
+        this.messageUpdateListeners.splice(index, 1);
       }
     };
   }

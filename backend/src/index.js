@@ -144,12 +144,20 @@ const channelSchema = new mongoose.Schema({
 });
 const Channel = mongoose.models.Channel || mongoose.model("Channel", channelSchema);
 
-// Modèle message simple (adapté pour channel)
+// Modèle message enrichi avec réponses, réactions et édition
 const messageSchema = new mongoose.Schema({
   user: { type: String, required: true },
   content: { type: String, required: true },
   channel: { type: String, required: true }, // nom du salon
   timestamp: { type: Date, default: Date.now },
+  editedAt: { type: Date, default: null },
+  replyTo: { type: mongoose.Schema.Types.ObjectId, ref: 'Message', default: null }, // Message auquel on répond
+  reactions: [{
+    emoji: { type: String, required: true },
+    users: [{ type: String }], // emails des utilisateurs qui ont réagi
+    count: { type: Number, default: 0 }
+  }],
+  isEdited: { type: Boolean, default: false }
 });
 const Message = mongoose.models.Message || mongoose.model("Message", messageSchema);
 
@@ -333,7 +341,102 @@ io.on("connection", (socket) => {
   socket.on("message_deleted", async (data) => {
     // data : { messageId, channel }
     if (!data || !data.messageId || !data.channel) return;
-    io.to(data.channel).emit("message_deleted", { messageId: data.messageId });
+    
+    try {
+      const message = await Message.findById(data.messageId);
+      if (!message) return;
+      
+      // Vérifier les permissions (propriétaire du message ou modérateur/admin)
+      const canDelete = message.user === userEmail || await checkPermission(userEmail, data.channel, 'canDeleteMessages');
+      if (!canDelete) return;
+      
+      await Message.findByIdAndDelete(data.messageId);
+      io.to(data.channel).emit("message_deleted", { messageId: data.messageId });
+    } catch (error) {
+      console.error("Erreur lors de la suppression du message:", error);
+    }
+  });
+
+  // Écouter l'édition de messages
+  socket.on("message_edited", async (data) => {
+    // data : { messageId, content, channel }
+    if (!data || !data.messageId || !data.content || !data.channel) return;
+    
+    try {
+      const message = await Message.findById(data.messageId);
+      if (!message || message.user !== userEmail) return;
+      
+      message.content = data.content;
+      message.editedAt = new Date();
+      message.isEdited = true;
+      await message.save();
+      
+      // Enrichir le message avec l'avatar
+      const user = await User.findOne({ name: message.user });
+      const enrichedMessage = {
+        ...message.toObject(),
+        avatar: user?.avatar || "/avatars/avatar1.png"
+      };
+      
+      io.to(data.channel).emit("message_updated", enrichedMessage);
+    } catch (error) {
+      console.error("Erreur lors de l'édition du message:", error);
+    }
+  });
+
+  // Écouter les réactions aux messages
+  socket.on("message_reaction", async (data) => {
+    // data : { messageId, emoji, channel, action: 'add' | 'remove' }
+    if (!data || !data.messageId || !data.emoji || !data.channel) return;
+    
+    try {
+      const message = await Message.findById(data.messageId);
+      if (!message) return;
+      
+      const action = data.action || 'add';
+      
+      if (action === 'add') {
+        // Ajouter la réaction
+        let reaction = message.reactions.find(r => r.emoji === data.emoji);
+        if (reaction) {
+          if (!reaction.users.includes(userEmail)) {
+            reaction.users.push(userEmail);
+            reaction.count = reaction.users.length;
+          }
+        } else {
+          message.reactions.push({
+            emoji: data.emoji,
+            users: [userEmail],
+            count: 1
+          });
+        }
+      } else if (action === 'remove') {
+        // Retirer la réaction
+        const reaction = message.reactions.find(r => r.emoji === data.emoji);
+        if (reaction) {
+          reaction.users = reaction.users.filter(email => email !== userEmail);
+          reaction.count = reaction.users.length;
+          
+          // Supprimer la réaction si plus personne ne l'utilise
+          if (reaction.count === 0) {
+            message.reactions = message.reactions.filter(r => r.emoji !== data.emoji);
+          }
+        }
+      }
+      
+      await message.save();
+      
+      // Enrichir le message avec l'avatar
+      const user = await User.findOne({ name: message.user });
+      const enrichedMessage = {
+        ...message.toObject(),
+        avatar: user?.avatar || "/avatars/avatar1.png"
+      };
+      
+      io.to(data.channel).emit("message_updated", enrichedMessage);
+    } catch (error) {
+      console.error("Erreur lors de la gestion de la réaction:", error);
+    }
   });
 
   // Mise à jour du statut utilisateur
