@@ -1,113 +1,223 @@
 "use client";
-import AuthButton from "./components/AuthButton";
-import MenuLinks from "./components/MenuLinks";
-import Chat from "./components/Chat";
-import ChannelList from "./components/ChannelList";
-import NoChannelSelected from "./components/NoChannelSelected";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useSession } from "next-auth/react";
+import { useSocket } from "./hooks/useSocket";
+import { useNotifications } from "./hooks/useNotifications";
+import Chat from "./components/chat/Chat";
+import ChannelList from "./components/channels/ChannelList";
+import CreateChannelModal from "./components/channels/CreateChannelModal";
+import NotificationToast from "./components/notifications/NotificationToast";
+import NotificationSettings from "./components/notifications/NotificationSettings";
+import AuthButton from "./components/auth/AuthButton";
+import WelcomeBanner from "./components/WelcomeBanner";
+import NoChannelSelected from "./components/NoChannelSelected";
+import MenuLinks from "./components/MenuLinks";
 
 interface Channel {
   _id: string;
   name: string;
   createdAt: string;
+  description?: string;
+  owner?: string;
+  members?: string[];
+  permissions?: any;
+  icon?: string;
 }
 
 export default function Home() {
   const { data: session } = useSession();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [showCreateChannel, setShowCreateChannel] = useState(false);
 
-  // Charger les salons au démarrage
-  useEffect(() => {
-    if (session?.user?.email) {
-      fetchChannels(session.user.email);
-    }
-  }, [session?.user?.email]);
+  // Utiliser les nouveaux hooks
+  const socketConfig = useMemo(() => ({
+    session,
+    selectedChannel,
+    channels
+  }), [session, selectedChannel, channels]);
 
-  const fetchChannels = async (userEmail: string) => {
+  const { socket, isConnected, sendMessage, deleteMessage } = useSocket(socketConfig);
+
+  const { 
+    toasts, 
+    settings, 
+    unreadCounts,
+    addToast, 
+    removeToast, 
+    updateSettings, 
+    requestBrowserPermission,
+    resetUnreadCount
+  } = useNotifications();
+
+  // Référence pour addToast pour éviter les dépendances
+  const addToastRef = useRef(addToast);
+  addToastRef.current = addToast;
+
+  // Charger les salons
+  const fetchChannels = useCallback(async (userEmail: string) => {
     try {
       const response = await fetch(`http://localhost:4000/channels?userEmail=${encodeURIComponent(userEmail)}`);
       if (response.ok) {
         const channelsData = await response.json();
         setChannels(channelsData);
-        // Sélectionner automatiquement le premier salon s'il existe
-        if (channelsData.length > 0 && !selectedChannel) {
-          setSelectedChannel(channelsData[0].name);
-        }
+      } else {
+        console.error("Erreur lors du chargement des salons:", response.status);
+        addToastRef.current("Erreur lors du chargement des salons", "error");
       }
     } catch (error) {
       console.error("Erreur lors du chargement des salons:", error);
-    } finally {
-      setLoading(false);
+      addToastRef.current("Erreur lors du chargement des salons", "error");
     }
-  };
+  }, []);
 
-  const handleCreateChannel = async (name: string) => {
+  // Charger les salons au changement de session
+  useEffect(() => {
+    if (session?.user?.email) {
+      fetchChannels(session.user.email);
+    }
+  }, [session?.user?.email, fetchChannels]);
+
+  // Sélectionner automatiquement le premier salon si aucun n'est sélectionné
+  useEffect(() => {
+    if (channels.length > 0 && !selectedChannel) {
+      setSelectedChannel(channels[0].name);
+    }
+  }, [channels]);
+
+  // Gérer la création de salon
+  const handleCreateChannel = useCallback(async (channelData: any) => {
+    if (!session?.user?.email) return;
+
     try {
       const response = await fetch("http://localhost:4000/channels", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          name,
-          createdBy: session?.user?.email || "anonymous"
-        }),
+        body: JSON.stringify({
+          ...channelData,
+          owner: session.user.email
+        })
       });
 
       if (response.ok) {
         const newChannel = await response.json();
         setChannels(prev => [...prev, newChannel]);
         setSelectedChannel(newChannel.name);
-        return Promise.resolve();
+        setShowCreateChannel(false);
+        addToast(`Salon "${newChannel.name}" créé avec succès`, "success");
       } else {
         const error = await response.json();
-        return Promise.reject(new Error(error.error || "Erreur lors de la création du salon"));
+        addToast(error.error || "Erreur lors de la création du salon", "error");
       }
     } catch (error) {
-      return Promise.reject(error);
+      addToast("Erreur de connexion", "error");
     }
-  };
+  }, [session?.user?.email, addToast]);
 
-  if (loading) {
+
+
+  // Demander les permissions de notification
+  const handleRequestNotificationPermission = useCallback(async () => {
+    const granted = await requestBrowserPermission();
+    if (granted) {
+      addToast("Notifications navigateur activées", "success");
+    } else {
+      addToast("Notifications navigateur refusées", "warning");
+    }
+  }, [requestBrowserPermission, addToast]);
+
+  if (!session) {
     return (
-      <div className="flex min-h-screen bg-[#313338] text-white items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#5865f2] mx-auto mb-4"></div>
-          <p className="text-gray-400">Chargement des salons...</p>
+      <div className="h-screen bg-[#313338] flex items-center justify-center">
+        <div className="bg-[#36393f] p-8 rounded-lg shadow-lg max-w-md w-full">
+          <div className="text-center mb-6">
+            <h1 className="text-2xl font-bold text-white mb-2">Discord Lite</h1>
+            <p className="text-gray-400">Connectez-vous pour commencer</p>
+          </div>
+          <AuthButton />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen bg-[#313338] text-white">
-      <ChannelList 
-        channels={channels}
-        selectedChannel={selectedChannel}
-        onSelectChannel={setSelectedChannel}
-        onCreateChannel={handleCreateChannel}
-      />
-      <div className="flex-1 flex flex-col">
-        <header className="w-full flex justify-end items-center gap-4 p-2 bg-[#23272a] border-b border-[#23272a]">
-          <MenuLinks />
-          <AuthButton />
-        </header>
-        <main className="flex flex-1">
-          {selectedChannel ? (
-            <Chat 
-              channel={selectedChannel}
-              channels={channels}
-              setChannels={setChannels}
-              fetchChannels={fetchChannels}
-              setSelectedChannel={setSelectedChannel}
-              session={session}
+    <div className="h-screen bg-[#313338] flex">
+      {/* Sidebar */}
+      <div className="w-64 bg-[#2b2d31] flex flex-col">
+        {/* Header */}
+        <div className="p-4 border-b border-[#23272a]">
+          <div className="flex items-center gap-3">
+            <img
+              src={session.user?.image || "/avatars/avatar1.png"}
+              alt={session.user?.name || "Avatar"}
+              className="w-8 h-8 rounded-full"
             />
-          ) : (
-            <NoChannelSelected />
-          )}
-        </main>
+            <div className="flex-1 min-w-0">
+              <p className="text-white font-medium text-sm truncate">
+                {session.user?.name || session.user?.email}
+              </p>
+              <div className="flex items-center gap-1">
+                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                <span className="text-gray-400 text-xs">En ligne</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Menu Links */}
+        <MenuLinks />
+
+        {/* Channels */}
+                 <div className="flex-1 overflow-y-auto">
+           <ChannelList
+             channels={channels}
+             selectedChannel={selectedChannel}
+             onSelectChannel={setSelectedChannel}
+             onCreateChannel={(name: string) => handleCreateChannel({ name })}
+             unreadCounts={unreadCounts}
+           />
+         </div>
+
+                 {/* Footer */}
+         <div className="p-4 border-t border-[#23272a]">
+           <div className="flex items-center gap-2">
+             <NotificationSettings
+               settings={settings}
+               onUpdateSettings={updateSettings}
+               onRequestPermission={requestBrowserPermission}
+             />
+           </div>
+         </div>
       </div>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col">
+        {selectedChannel ? (
+          <Chat
+            channel={selectedChannel}
+            channels={channels}
+            setChannels={setChannels}
+            fetchChannels={fetchChannels}
+            setSelectedChannel={setSelectedChannel}
+            session={session}
+
+            socket={socket}
+            onResetUnreadCount={resetUnreadCount}
+          />
+        ) : (
+          <NoChannelSelected />
+        )}
+      </div>
+
+             {/* Modals */}
+       <CreateChannelModal
+         isOpen={showCreateChannel}
+         onClose={() => setShowCreateChannel(false)}
+         onCreateChannel={(name: string) => handleCreateChannel({ name })}
+       />
+
+      {/* Notifications */}
+      <NotificationToast toasts={toasts} removeToast={removeToast} />
     </div>
   );
 }

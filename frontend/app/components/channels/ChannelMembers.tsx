@@ -173,7 +173,7 @@ export default function ChannelMembers({ channelName, isOpen, onClose, session }
         </div>
 
         {/* Contenu */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto bg-[#2f3136]">
           {loading ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">

@@ -1,7 +1,7 @@
 "use client";
 import { useSession } from "next-auth/react";
 import Image from "next/image";
-import AvatarSelector from "../components/AvatarSelector";
+import AvatarSelector from "../components/auth/AvatarSelector";
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 

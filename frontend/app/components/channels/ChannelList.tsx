@@ -14,6 +14,7 @@ interface ChannelListProps {
   selectedChannel: string | null;
   onSelectChannel: (channel: string) => void;
   onCreateChannel: (name: string) => Promise<void>;
+  unreadCounts?: Record<string, number>;
 }
 
 // Fonction utilitaire pour l’URL de l’icône du salon (comme AuthButton)
@@ -33,7 +34,7 @@ const getChannelIconUrl = (icon: string | undefined) => {
   return iconUrl;
 };
 
-export default function ChannelList({ channels, selectedChannel, onSelectChannel, onCreateChannel }: ChannelListProps) {
+export default function ChannelList({ channels, selectedChannel, onSelectChannel, onCreateChannel, unreadCounts = {} }: ChannelListProps) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [creating, setCreating] = useState(false);
 
@@ -50,7 +51,7 @@ export default function ChannelList({ channels, selectedChannel, onSelectChannel
   };
 
   return (
-    <div className="bg-[#2f3136] flex flex-col h-screen">
+    <div className="flex flex-col">
       {/* Channels Section */}
       <div className="flex-1 p-4">
         {/* Channel List */}
@@ -77,14 +78,19 @@ export default function ChannelList({ channels, selectedChannel, onSelectChannel
                 <div key={channel._id || channel.name} className="relative group">
                   <button
                     onClick={() => onSelectChannel(channel.name)}
-                    className={`w-12 h-12 flex items-center justify-center rounded-2xl mb-2 transition-all border-2 ${
+                    className={`w-12 h-12 flex items-center justify-center rounded-2xl mb-2 transition-all border-2 relative ${
                       selectedChannel === channel.name
                         ? "bg-[#5865f2] border-[#5865f2]"
                         : "bg-[#36393f] border-transparent hover:bg-[#40444b]"
                     }`}
-                    style={{ position: 'relative' }}
                   >
                     <img src={iconUrl} alt="avatar" className="w-8 h-8 rounded-full" />
+                    {/* Badge de notification */}
+                    {unreadCounts[channel.name] > 0 && (
+                      <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 font-medium">
+                        {unreadCounts[channel.name] > 99 ? '99+' : unreadCounts[channel.name]}
+                      </div>
+                    )}
                   </button>
                   {/* Tooltip Discord-like */}
                   <div className="absolute left-14 top-1/2 -translate-y-1/2 z-10 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200">

@@ -194,16 +194,39 @@ io.on("connection", (socket) => {
       // Mettre à jour le statut en ligne
       await User.findOneAndUpdate({ email }, { status: "online" });
       socket.broadcast.emit("user_status_changed", { email, status: "online" });
+      
+      // Faire rejoindre automatiquement tous les salons auxquels l'utilisateur a accès
+      const userChannels = await Channel.find({
+        $or: [
+          { owner: email },
+          { "members.email": email }
+        ]
+      });
+      
+      console.log(`User ${email} has access to channels:`, userChannels.map(c => c.name));
+      
+      for (const channel of userChannels) {
+        socket.join(channel.name);
+        console.log(`User ${email} auto-joined channel: ${channel.name}`);
+      }
     }
   });
 
   // Rejoindre un salon
   socket.on("join_channel", async (channel) => {
     if (!channel) return;
+    console.log("User joining channel:", channel, "Socket ID:", socket.id);
     socket.join(channel);
-    // Envoyer l'historique du salon
-    const history = await Message.find({ channel }).sort({ timestamp: 1 }).limit(50);
-    // Enrichir chaque message avec l'avatar de l'auteur
+    console.log("User joined channel:", channel, "Total clients in room:", io.sockets.adapter.rooms.get(channel)?.size || 0);
+    
+    // Envoyer l'historique du salon (50 plus récents)
+    const history = await Message.find({ channel })
+      .sort({ timestamp: -1 })
+      .limit(50)
+      .sort({ timestamp: 1 }); // Re-trier pour avoir l'ordre chronologique
+    
+    console.log("Messages trouvés en BDD pour", channel, ":", history.length);
+    
     const enrichedHistory = await Promise.all(history.map(async (msg) => {
       const user = await User.findOne({ name: msg.user });
       return {
@@ -211,7 +234,19 @@ io.on("connection", (socket) => {
         avatar: user?.avatar || "/avatars/avatar1.png"
       };
     }));
-    socket.emit("message_history", enrichedHistory);
+    
+    // Vérifier s'il y a plus de messages
+    const totalCount = await Message.countDocuments({ channel });
+    const hasMore = totalCount > 50;
+    
+    socket.emit("message_history", {
+      messages: enrichedHistory,
+      hasMore,
+      totalCount,
+      currentPage: 0
+    });
+    
+    console.log("Historique envoyé:", enrichedHistory.length, "messages pour le salon:", channel, "hasMore:", hasMore);
   });
 
   // Quitter un salon
@@ -219,18 +254,70 @@ io.on("connection", (socket) => {
     if (channel) socket.leave(channel);
   });
 
+  // Demander l'historique des messages d'un salon
+  socket.on("get_message_history", async (data) => {
+    const { channel, page = 0, limit = 50 } = typeof data === 'string' ? { channel: data } : data;
+    if (!channel) return;
+    console.log("Demande d'historique pour le salon:", channel, "page:", page, "limit:", limit);
+    
+    try {
+      const skip = page * limit;
+      const history = await Message.find({ channel })
+        .sort({ timestamp: 1 })
+        .skip(skip)
+        .limit(limit);
+      
+      console.log("Messages trouvés en BDD pour", channel, ":", history.length, "skip:", skip);
+      
+      // Enrichir chaque message avec l'avatar de l'auteur
+      const enrichedHistory = await Promise.all(history.map(async (msg) => {
+        const user = await User.findOne({ name: msg.user });
+        return {
+          ...msg.toObject(),
+          avatar: user?.avatar || "/avatars/avatar1.png"
+        };
+      }));
+      
+      // Vérifier s'il y a plus de messages
+      const totalCount = await Message.countDocuments({ channel });
+      const hasMore = skip + limit < totalCount;
+      
+      socket.emit("message_history", {
+        messages: enrichedHistory,
+        hasMore,
+        totalCount,
+        currentPage: page
+      });
+      
+      console.log("Historique envoyé:", enrichedHistory.length, "messages pour le salon:", channel, "hasMore:", hasMore);
+    } catch (error) {
+      console.error("Erreur lors de la récupération de l'historique:", error);
+    }
+  });
+
   // Réception d'un message dans un salon
   socket.on("message", async (data) => {
     // data : { user, content, channel }
     if (!data || !data.user || !data.content || !data.channel) return;
-    const msg = await Message.create({ user: data.user, content: data.content, channel: data.channel });
-    // Enrichir le message avec l'avatar de l'auteur
-    const user = await User.findOne({ name: data.user });
-    const enrichedMsg = {
-      ...msg.toObject(),
-      avatar: user?.avatar || "/avatars/avatar1.png"
-    };
-    io.to(data.channel).emit("message", enrichedMsg); // broadcast dans le salon
+    console.log("Message reçu du client:", data);
+    console.log("Nombre de clients dans la room", data.channel, ":", io.sockets.adapter.rooms.get(data.channel)?.size || 0);
+    
+    try {
+      const msg = await Message.create({ user: data.user, content: data.content, channel: data.channel });
+      console.log("✅ Message enregistré en BDD:", msg._id, "pour le salon:", data.channel);
+      
+      // Enrichir le message avec l'avatar de l'auteur
+      const user = await User.findOne({ name: data.user });
+      const enrichedMsg = {
+        ...msg.toObject(),
+        avatar: user?.avatar || "/avatars/avatar1.png"
+      };
+      console.log("Broadcasting message to channel:", data.channel);
+      console.log("Clients in room:", io.sockets.adapter.rooms.get(data.channel)?.size || 0);
+      io.to(data.channel).emit("message", enrichedMsg); // broadcast dans le salon
+    } catch (error) {
+      console.error("❌ Erreur lors de l'enregistrement du message:", error);
+    }
   });
 
   // Écouter la suppression de messages
