@@ -7,6 +7,8 @@ import ChannelMembers from "../channels/ChannelMembers";
 import OnlineMembers from "../channels/OnlineMembers";
 import MessageItem from "./MessageItem";
 import MentionAutocomplete from "./MentionAutocomplete";
+import EmojiPicker from "./EmojiPicker";
+import { replaceTextEmojis, hasTextEmojis } from "../../utils/emojiMapping";
 
 interface Reaction {
   emoji: string;
@@ -61,6 +63,7 @@ export default function Chat({
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [channelUsers, setChannelUsers] = useState<any[]>([]);
   const [showMentionAutocomplete, setShowMentionAutocomplete] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -73,6 +76,7 @@ export default function Chat({
   const [totalCount, setTotalCount] = useState(0);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [highlightedMessage, setHighlightedMessage] = useState<string | null>(null);
 
   // Construire l'URL de l'avatar
   const getAvatarUrl = (avatarPath: string) => {
@@ -157,6 +161,7 @@ export default function Chat({
     });
 
     const unsubscribeMessageUpdate = socketService.onMessageUpdate((updatedMessage: Message) => {
+      console.log("Chat: Message mis à jour reçu", updatedMessage);
       setMessages(prev => prev.map(msg => 
         msg._id === updatedMessage._id ? updatedMessage : msg
       ));
@@ -312,9 +317,15 @@ export default function Chat({
     if (!input.trim() || !socket) return;
     
     const user = session?.user?.name || session?.user?.email || "Anonyme";
+    
+    // Remplacer les emojis textuels par des emojis Unicode
+    console.log("Chat: Texte original:", input);
+    const processedContent = replaceTextEmojis(input);
+    console.log("Chat: Texte après remplacement:", processedContent);
+    
     const messageData = { 
       user, 
-      content: input, 
+      content: processedContent, 
       channel,
       replyTo: replyingTo?._id 
     };
@@ -324,7 +335,7 @@ export default function Chat({
     const tempMessage: Message = {
       _id: `temp-${Date.now()}`,
       user,
-      content: input,
+      content: processedContent,
       channel,
       timestamp: new Date().toISOString(),
       avatar: session?.user?.image || "/avatars/avatar1.png",
@@ -340,11 +351,37 @@ export default function Chat({
     setReplyingTo(null);
   };
 
-  const handleReply = (message: Message) => {
+  const handleReply = (message: Message, isReferenceClick: boolean = false) => {
+    // Si c'est un clic sur le message de référence, on le met en avant
+    if (isReferenceClick) {
+      highlightMessage(message._id);
+      scrollToMessage(message._id);
+      return;
+    }
+    
     setReplyingTo(message);
     // Focus sur l'input
     if (inputRef.current) {
       inputRef.current.focus();
+    }
+  };
+
+  const highlightMessage = (messageId: string) => {
+    setHighlightedMessage(messageId);
+    
+    // Retirer la mise en avant après 5 secondes
+    setTimeout(() => {
+      setHighlightedMessage(null);
+    }, 5000);
+  };
+
+  const scrollToMessage = (messageId: string) => {
+    const messageElement = document.getElementById(`message-${messageId}`);
+    if (messageElement) {
+      messageElement.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'center' 
+      });
     }
   };
 
@@ -392,10 +429,21 @@ export default function Chat({
       setShowMentionAutocomplete(true);
     } else if (e.key === 'Escape') {
       setShowMentionAutocomplete(false);
+      setShowEmojiPicker(false);
     } else if (showMentionAutocomplete && (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Enter' || e.key === 'Tab')) {
       // Empêcher la propagation pour permettre la navigation dans l'autocomplétion
       e.preventDefault();
       e.stopPropagation();
+    }
+  };
+
+  const handleSelectEmoji = (emoji: string) => {
+    setInput(prev => prev + emoji);
+    setShowEmojiPicker(false);
+    
+    // Focus sur l'input
+    if (inputRef.current) {
+      inputRef.current.focus();
     }
   };
 
@@ -510,6 +558,8 @@ export default function Chat({
               // Trouver le message auquel on répond
               const replyToMessage = msg.replyTo ? messages.find(m => m._id === msg.replyTo) : null;
               
+              const isHighlighted = highlightedMessage === msg._id;
+              
               return (
                 <div key={msg._id}>
                   {/* Ligne de séparation pour les nouveaux messages */}
@@ -525,15 +575,24 @@ export default function Chat({
                   )}
                   
                   {/* Message */}
-                  <MessageItem
-                    message={msg}
-                    session={session}
-                    userPermissions={userPermissions}
-                    onReply={handleReply}
-                    getAvatarUrl={getAvatarUrl}
-                    isNewMessage={isNewMessage}
-                    replyToMessage={replyToMessage}
-                  />
+                  <div 
+                    id={`message-${msg._id}`}
+                    className={`transition-all duration-500 ${
+                      isHighlighted 
+                        ? 'bg-[#5865f2]/20 border-l-4 border-[#5865f2] shadow-lg' 
+                        : ''
+                    }`}
+                  >
+                    <MessageItem
+                      message={msg}
+                      session={session}
+                      userPermissions={userPermissions}
+                      onReply={handleReply}
+                      getAvatarUrl={getAvatarUrl}
+                      isNewMessage={isNewMessage}
+                      replyToMessage={replyToMessage}
+                    />
+                  </div>
                 </div>
               );
             })}
@@ -580,17 +639,37 @@ export default function Chat({
         
         <form onSubmit={handleSend} className="flex gap-3 relative">
           <div className="flex-1 relative">
-            <input
-              ref={inputRef}
-              type="text"
-              value={input}
-              onChange={handleInputChange}
-              onKeyDown={handleInputKeyDown}
-              onBlur={handleInputBlur}
-              placeholder={session ? `Message #${channel}` : "Connectez-vous pour participer au chat"}
-              className="w-full p-3 rounded-lg bg-[#40444b] text-white border-none focus:ring-2 focus:ring-[#5865f2] placeholder-gray-400"
-              disabled={!session}
-            />
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-[#40444b] border border-transparent focus-within:border-[#5865f2] focus-within:ring-2 focus-within:ring-[#5865f2]">
+              <button
+                type="button"
+                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                className="text-gray-400 hover:text-white transition-colors p-1"
+                title="Ajouter un emoji"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </button>
+              
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={handleInputChange}
+                onKeyDown={handleInputKeyDown}
+                onBlur={handleInputBlur}
+                placeholder={session ? `Message #${channel}` : "Connectez-vous pour participer au chat"}
+                className="flex-1 bg-transparent text-white border-none outline-none placeholder-gray-400"
+                disabled={!session}
+              />
+              
+              {/* Indicateur d'emojis textuels détectés */}
+              {hasTextEmojis(input) && (
+                <div className="text-xs text-[#5865f2] bg-[#5865f2]/10 px-2 py-1 rounded">
+                  Emojis détectés
+                </div>
+              )}
+            </div>
             
             {/* Autocomplétion des mentions */}
             <MentionAutocomplete
@@ -599,6 +678,13 @@ export default function Chat({
               users={channelUsers}
               isVisible={showMentionAutocomplete}
               onClose={() => setShowMentionAutocomplete(false)}
+            />
+            
+            {/* Sélecteur d'emojis */}
+            <EmojiPicker
+              onSelectEmoji={handleSelectEmoji}
+              isVisible={showEmojiPicker}
+              onClose={() => setShowEmojiPicker(false)}
             />
           </div>
           

@@ -8,6 +8,8 @@ import bcrypt from "bcryptjs";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import axios from "axios";
+import { load } from "cheerio";
 
 dotenv.config();
 
@@ -314,13 +316,25 @@ io.on("connection", (socket) => {
 
   // Réception d'un message dans un salon
   socket.on("message", async (data) => {
-    // data : { user, content, channel }
+    // data : { user, content, channel, replyTo? }
     if (!data || !data.user || !data.content || !data.channel) return;
     console.log("Message reçu du client:", data);
     console.log("Nombre de clients dans la room", data.channel, ":", io.sockets.adapter.rooms.get(data.channel)?.size || 0);
     
     try {
-      const msg = await Message.create({ user: data.user, content: data.content, channel: data.channel });
+      const messageData = { 
+        user: data.user, 
+        content: data.content, 
+        channel: data.channel 
+      };
+      
+      // Ajouter replyTo si présent
+      if (data.replyTo) {
+        messageData.replyTo = data.replyTo;
+        console.log("Message en réponse à:", data.replyTo);
+      }
+      
+      const msg = await Message.create(messageData);
       console.log("✅ Message enregistré en BDD:", msg._id, "pour le salon:", data.channel);
       
       // Enrichir le message avec l'avatar de l'auteur
@@ -364,7 +378,20 @@ io.on("connection", (socket) => {
     
     try {
       const message = await Message.findById(data.messageId);
-      if (!message || message.user !== userEmail) return;
+      if (!message) {
+        console.log("Message non trouvé:", data.messageId);
+        return;
+      }
+      
+      // Vérifier que l'utilisateur est bien l'auteur du message
+      // Le message stocke le nom d'utilisateur, pas l'email
+      const user = await User.findOne({ email: userEmail });
+      if (!user || message.user !== user.name) {
+        console.log("Utilisateur non autorisé à modifier ce message:", userEmail, "vs", message.user);
+        return;
+      }
+      
+      console.log("Modification du message:", data.messageId, "par", userEmail);
       
       message.content = data.content;
       message.editedAt = new Date();
@@ -372,12 +399,12 @@ io.on("connection", (socket) => {
       await message.save();
       
       // Enrichir le message avec l'avatar
-      const user = await User.findOne({ name: message.user });
       const enrichedMessage = {
         ...message.toObject(),
         avatar: user?.avatar || "/avatars/avatar1.png"
       };
       
+      console.log("Message mis à jour, envoi aux clients du salon:", data.channel);
       io.to(data.channel).emit("message_updated", enrichedMessage);
     } catch (error) {
       console.error("Erreur lors de l'édition du message:", error);
@@ -974,6 +1001,64 @@ app.patch("/channels/:channelName", (req, res, next) => {
   }
   await channel.save();
   res.json({ message: "Salon mis à jour", channel });
+});
+
+// Route : récupérer les métadonnées OpenGraph d'un lien
+app.get("/link-preview", async (req, res) => {
+  const { url } = req.query;
+  
+  if (!url) {
+    return res.status(400).json({ error: "URL requise" });
+  }
+
+  try {
+    // Vérifier que l'URL est valide
+    const urlObj = new URL(url);
+    if (!['http:', 'https:'].includes(urlObj.protocol)) {
+      return res.status(400).json({ error: "URL invalide" });
+    }
+
+    // Récupérer le contenu de la page
+    const response = await axios.get(url, {
+      timeout: 5000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      }
+    });
+
+    const html = response.data;
+    const $ = load(html);
+
+    // Extraire les métadonnées OpenGraph
+    const title = $('meta[property="og:title"]').attr('content') || 
+                  $('title').text() || 
+                  $('meta[name="title"]').attr('content') || '';
+
+    const description = $('meta[property="og:description"]').attr('content') || 
+                       $('meta[name="description"]').attr('content') || '';
+
+    const image = $('meta[property="og:image"]').attr('content') || 
+                  $('meta[property="twitter:image"]').attr('content') || '';
+
+    const siteName = $('meta[property="og:site_name"]').attr('content') || 
+                     urlObj.hostname;
+
+    // Convertir les URLs relatives en absolues
+    const absoluteImage = image ? new URL(image, url).href : '';
+    const absoluteSiteName = siteName.startsWith('http') ? new URL(siteName, url).hostname : siteName;
+
+    res.json({
+      title: title.trim(),
+      description: description.trim(),
+      image: absoluteImage,
+      url: url,
+      siteName: absoluteSiteName
+    });
+
+  } catch (error) {
+    console.error('Erreur lors de la récupération de la preview:', error);
+    res.status(500).json({ error: "Impossible de récupérer les métadonnées du lien" });
+  }
 });
 
 const PORT = process.env.PORT || 4000;

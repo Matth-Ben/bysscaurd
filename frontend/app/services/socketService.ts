@@ -94,7 +94,7 @@ class SocketService {
     }
   }
 
-  sendMessage(data: { user: string; content: string; channel: string }) {
+  sendMessage(data: { user: string; content: string; channel: string; replyTo?: string }) {
     if (this.socket) {
       console.log("SocketService: Envoi du message", data);
       this.socket.emit("message", data);
@@ -116,6 +116,7 @@ class SocketService {
 
   editMessage(data: { messageId: string; content: string; channel: string }) {
     if (this.socket) {
+      console.log("SocketService: Envoi de la modification", data);
       this.socket.emit("message_edited", data);
     }
   }

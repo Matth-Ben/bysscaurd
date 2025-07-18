@@ -1,6 +1,7 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import { socketService } from "../../services/socketService";
+import LinkPreview from "./LinkPreview";
 
 interface Reaction {
   emoji: string;
@@ -25,7 +26,7 @@ interface MessageItemProps {
   message: Message;
   session: any;
   userPermissions: any;
-  onReply: (message: Message) => void;
+  onReply: (message: Message, isReferenceClick?: boolean) => void;
   getAvatarUrl: (avatarPath: string) => string;
   isNewMessage?: boolean;
   replyToMessage?: Message | null;
@@ -48,6 +49,7 @@ export default function MessageItem({
   const [showOptions, setShowOptions] = useState(false);
   const editInputRef = useRef<HTMLInputElement>(null);
   const optionsRef = useRef<HTMLDivElement>(null);
+  const reactionsRef = useRef<HTMLDivElement>(null);
 
   const isOwnMessage = message.user === (session?.user?.name || session?.user?.email);
   const canEdit = isOwnMessage;
@@ -67,6 +69,9 @@ export default function MessageItem({
       if (optionsRef.current && !optionsRef.current.contains(event.target as Node)) {
         setShowOptions(false);
       }
+      if (reactionsRef.current && !reactionsRef.current.contains(event.target as Node)) {
+        setShowReactions(false);
+      }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
@@ -80,6 +85,11 @@ export default function MessageItem({
 
   const handleSaveEdit = () => {
     if (editContent.trim() && editContent !== message.content) {
+      console.log("MessageItem: Envoi de la modification", {
+        messageId: message._id,
+        content: editContent.trim(),
+        channel: message.channel
+      });
       socketService.editMessage({
         messageId: message._id,
         content: editContent.trim(),
@@ -127,7 +137,14 @@ export default function MessageItem({
     }
   };
 
-  // Fonction pour formater le contenu avec les mentions @
+  // Fonction pour détecter les liens dans le texte
+  const extractLinks = (text: string) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const matches = text.match(urlRegex);
+    return matches || [];
+  };
+
+  // Fonction pour formater le contenu avec les mentions @ et les liens
   const formatContent = (content: string) => {
     // Détecter les mentions @username
     const mentionRegex = /@(\w+)/g;
@@ -142,7 +159,28 @@ export default function MessageItem({
           </span>
         );
       }
-      return part;
+      
+      // Détecter les liens dans cette partie
+      const urlRegex = /(https?:\/\/[^\s]+)/g;
+      const linkParts = part.split(urlRegex);
+      
+      return linkParts.map((linkPart, linkIndex) => {
+        if (linkIndex % 2 === 1) {
+          // C'est un lien
+          return (
+            <a
+              key={`${index}-${linkIndex}`}
+              href={linkPart}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[#5865f2] hover:underline break-all"
+            >
+              {linkPart}
+            </a>
+          );
+        }
+        return linkPart;
+      });
     });
   };
 
@@ -150,14 +188,18 @@ export default function MessageItem({
     <div className={`group hover:bg-[#36393f] transition-colors ${isNewMessage ? 'bg-[#2b2d31] border-l-4 border-[#5865f2]' : ''}`}>
       {/* Message auquel on répond */}
       {replyToMessage && (
-        <div className="flex items-center gap-2 px-4 pt-2 pb-1 text-xs text-gray-400">
+        <div 
+          className="flex items-center gap-2 px-4 pt-2 pb-1 text-xs text-gray-400 cursor-pointer hover:bg-[#40444b] rounded transition-colors"
+          onClick={() => onReply(replyToMessage, true)}
+          title="Cliquer pour voir le message original"
+        >
           <div className="w-0.5 h-4 bg-gray-500 rounded-full"></div>
           <span className="font-medium text-[#5865f2]">{replyToMessage.user}</span>
           <span className="truncate">{replyToMessage.content}</span>
         </div>
       )}
       
-      <div className="flex items-start gap-3 px-4 py-2">
+      <div className="flex items-start gap-3 px-4 py-2 relative">
         <img
           src={getAvatarUrl(message.avatar || "/avatars/avatar1.png")}
           alt={message.user}
@@ -216,6 +258,11 @@ export default function MessageItem({
                 {formatContent(message.content)}
               </p>
               
+              {/* Previews de liens */}
+              {extractLinks(message.content).map((link, index) => (
+                <LinkPreview key={`${message._id}-link-${index}`} url={link} />
+              ))}
+              
               {/* Réactions */}
               {message.reactions && message.reactions.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-2">
@@ -242,76 +289,144 @@ export default function MessageItem({
           )}
         </div>
 
-        {/* Options du message */}
-        <div className="relative opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            onClick={() => setShowOptions(!showOptions)}
-            className="text-gray-400 hover:text-white transition-colors p-1 rounded hover:bg-[#40444b]"
-            title="Options du message"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-            </svg>
-          </button>
-
-          {showOptions && (
-            <div 
-              ref={optionsRef}
-              className="absolute right-0 top-8 bg-[#2f3136] border border-[#23272a] rounded-lg shadow-lg z-10 min-w-48"
+        {/* Barre d'actions horizontale au hover */}
+        <div className="absolute right-0 top-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+          <div className="flex items-center gap-1 bg-[#2f3136] border border-[#23272a] rounded-lg shadow-lg p-1">
+            {/* Réactions rapides */}
+            <button
+              onClick={() => handleReaction("😂")}
+              className="w-8 h-8 flex items-center justify-center text-lg hover:bg-[#40444b] rounded transition-colors"
+              title="Rire"
             >
-              <div className="p-1">
-                <button
-                  onClick={() => onReply(message)}
-                  className="w-full text-left px-3 py-2 text-gray-300 hover:text-white hover:bg-[#40444b] rounded text-sm transition-colors"
-                >
-                  Répondre
-                </button>
-                
-                <button
-                  onClick={() => setShowReactions(!showReactions)}
-                  className="w-full text-left px-3 py-2 text-gray-300 hover:text-white hover:bg-[#40444b] rounded text-sm transition-colors"
-                >
-                  Réagir
-                </button>
-                
-                {canEdit && (
-                  <button
-                    onClick={handleEdit}
-                    className="w-full text-left px-3 py-2 text-gray-300 hover:text-white hover:bg-[#40444b] rounded text-sm transition-colors"
-                  >
-                    Modifier
-                  </button>
-                )}
-                
-                {canDelete && (
-                  <button
-                    onClick={handleDelete}
-                    className="w-full text-left px-3 py-2 text-red-400 hover:text-red-300 hover:bg-[#40444b] rounded text-sm transition-colors"
-                  >
-                    Supprimer
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Menu des réactions */}
-          {showReactions && (
-            <div className="absolute right-0 top-8 bg-[#2f3136] border border-[#23272a] rounded-lg shadow-lg z-10 p-2">
-              <div className="grid grid-cols-5 gap-1">
-                {COMMON_EMOJIS.map((emoji) => (
-                  <button
-                    key={emoji}
-                    onClick={() => handleReaction(emoji)}
-                    className="w-8 h-8 flex items-center justify-center text-lg hover:bg-[#40444b] rounded transition-colors"
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+              😂
+            </button>
+            <button
+              onClick={() => handleReaction("❤️")}
+              className="w-8 h-8 flex items-center justify-center text-lg hover:bg-[#40444b] rounded transition-colors"
+              title="Cœur"
+            >
+              ❤️
+            </button>
+            <button
+              onClick={() => handleReaction("😮")}
+              className="w-8 h-8 flex items-center justify-center text-lg hover:bg-[#40444b] rounded transition-colors"
+              title="Surprise"
+            >
+              😮
+            </button>
+            
+            {/* Séparateur */}
+            <div className="w-px h-6 bg-[#40444b] mx-1"></div>
+            
+            {/* Bouton ajouter réaction */}
+            <button
+              onClick={() => setShowReactions(!showReactions)}
+              className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#40444b] rounded transition-colors"
+              title="Ajouter une réaction"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              </svg>
+            </button>
+            
+            {/* Bouton répondre */}
+            <button
+              onClick={() => onReply(message)}
+              className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#40444b] rounded transition-colors"
+              title="Répondre"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+              </svg>
+            </button>
+            
+            {/* Bouton modifier (uniquement pour l'auteur) */}
+            {canEdit && (
+              <button
+                onClick={handleEdit}
+                className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#40444b] rounded transition-colors"
+                title="Modifier"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              </button>
+            )}
+            
+            {/* Bouton plus pour toutes les actions */}
+            <button
+              onClick={() => setShowOptions(!showOptions)}
+              className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#40444b] rounded transition-colors"
+              title="Plus d'actions"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+              </svg>
+            </button>
+          </div>
         </div>
+
+        {/* Menu des options (plus d'actions) */}
+        {showOptions && (
+          <div 
+            ref={optionsRef}
+            className="absolute right-0 top-8 bg-[#2f3136] border border-[#23272a] rounded-lg shadow-lg z-10 min-w-48"
+          >
+            <div className="p-1">
+              <button
+                onClick={() => onReply(message)}
+                className="w-full text-left px-3 py-2 text-gray-300 hover:text-white hover:bg-[#40444b] rounded text-sm transition-colors"
+              >
+                Répondre
+              </button>
+              
+              <button
+                onClick={() => setShowReactions(!showReactions)}
+                className="w-full text-left px-3 py-2 text-gray-300 hover:text-white hover:bg-[#40444b] rounded text-sm transition-colors"
+              >
+                Ajouter une réaction
+              </button>
+              
+              {canEdit && (
+                <button
+                  onClick={handleEdit}
+                  className="w-full text-left px-3 py-2 text-gray-300 hover:text-white hover:bg-[#40444b] rounded text-sm transition-colors"
+                >
+                  Modifier
+                </button>
+              )}
+              
+              {canDelete && (
+                <button
+                  onClick={handleDelete}
+                  className="w-full text-left px-3 py-2 text-red-400 hover:text-red-300 hover:bg-[#40444b] rounded text-sm transition-colors"
+                >
+                  Supprimer
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Menu des réactions */}
+        {showReactions && (
+          <div 
+            ref={reactionsRef}
+            className="absolute right-0 top-8 bg-[#2f3136] border border-[#23272a] rounded-lg shadow-lg z-10 p-2"
+          >
+            <div className="grid grid-cols-5 gap-1">
+              {COMMON_EMOJIS.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => handleReaction(emoji)}
+                  className="w-8 h-8 flex items-center justify-center text-lg hover:bg-[#40444b] rounded transition-colors"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
