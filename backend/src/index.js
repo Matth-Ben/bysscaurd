@@ -193,7 +193,6 @@ io.on("connection", (socket) => {
     if (email) {
       // Mettre à jour le statut en ligne
       await User.findOneAndUpdate({ email }, { status: "online" });
-      socket.broadcast.emit("user_status_changed", { email, status: "online" });
       
       // Faire rejoindre automatiquement tous les salons auxquels l'utilisateur a accès
       const userChannels = await Channel.find({
@@ -208,7 +207,17 @@ io.on("connection", (socket) => {
       for (const channel of userChannels) {
         socket.join(channel.name);
         console.log(`User ${email} auto-joined channel: ${channel.name}`);
+        
+        // Notifier les autres membres du salon que l'utilisateur est en ligne
+        socket.to(channel.name).emit("user_joined_channel", { 
+          email, 
+          status: "online",
+          channel: channel.name 
+        });
       }
+      
+      // Notifier tous les utilisateurs du changement de statut
+      socket.broadcast.emit("user_status_changed", { email, status: "online" });
     }
   });
 
@@ -338,8 +347,25 @@ io.on("connection", (socket) => {
     console.log("User disconnected: " + socket.id);
     if (userEmail) {
       // Mettre à jour le statut hors ligne
-      User.findOneAndUpdate({ email: userEmail }, { status: "offline" }).then(() => {
+      User.findOneAndUpdate({ email: userEmail }, { status: "offline" }).then(async () => {
+        // Notifier tous les utilisateurs du changement de statut
         socket.broadcast.emit("user_status_changed", { email: userEmail, status: "offline" });
+        
+        // Notifier les salons que l'utilisateur a quitté
+        const userChannels = await Channel.find({
+          $or: [
+            { owner: userEmail },
+            { "members.email": userEmail }
+          ]
+        });
+        
+        for (const channel of userChannels) {
+          socket.to(channel.name).emit("user_left_channel", { 
+            email: userEmail, 
+            status: "offline",
+            channel: channel.name 
+          });
+        }
       });
     }
   });
@@ -524,6 +550,54 @@ app.get("/channels/:channelName/members", async (req, res) => {
     : [ownerMember, ...membersWithDetails];
 
   res.json({ members: allMembers });
+});
+
+// Route : récupérer les membres connectés d'un salon
+app.get("/channels/:channelName/online-members", async (req, res) => {
+  const { channelName } = req.params;
+  const { userEmail } = req.query;
+  if (!userEmail) return res.status(400).json({ error: "Email utilisateur requis" });
+  
+  const channel = await Channel.findOne({ name: channelName });
+  if (!channel) return res.status(404).json({ error: "Salon non trouvé" });
+
+  // Vérifier que l'utilisateur est membre du salon
+  const isMember = channel.owner === userEmail || channel.members.find(m => m.email === userEmail);
+  if (!isMember) return res.status(403).json({ error: "Accès refusé" });
+
+  // Récupérer les utilisateurs en ligne dans ce salon
+  const onlineUsers = await User.find({ 
+    status: "online",
+    $or: [
+      { email: channel.owner },
+      { email: { $in: channel.members.map(m => m.email) } }
+    ]
+  });
+
+  // Formater les données des utilisateurs en ligne
+  const onlineMembers = onlineUsers.map(user => {
+    const member = channel.members.find(m => m.email === user.email);
+    const role = user.email === channel.owner ? "Admin" : (member ? member.role : "Utilisateur");
+    
+    return {
+      email: user.email,
+      role: role,
+      name: user.name,
+      avatar: user.avatar,
+      status: user.status
+    };
+  });
+
+  // Calculer le nombre total de membres (propriétaire + membres)
+  const totalMembers = channel.members.some(m => m.email === channel.owner) 
+    ? channel.members.length 
+    : channel.members.length + 1;
+
+  res.json({ 
+    onlineMembers,
+    totalOnline: onlineMembers.length,
+    totalMembers: totalMembers
+  });
 });
 
 // Route : créer un rôle

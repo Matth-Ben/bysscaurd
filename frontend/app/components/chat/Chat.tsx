@@ -4,6 +4,7 @@ import { useSession } from "next-auth/react";
 import { socketService } from "../../services/socketService";
 import ChannelPermissions from "../channels/ChannelPermissions";
 import ChannelMembers from "../channels/ChannelMembers";
+import OnlineMembers from "../channels/OnlineMembers";
 
 interface Message {
   _id: string;
@@ -42,6 +43,7 @@ export default function Chat({
   const [isOwner, setIsOwner] = useState(false);
   const [showPermissions, setShowPermissions] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
+  const [showOnlineMembers, setShowOnlineMembers] = useState(true);
   const [userPermissions, setUserPermissions] = useState<any>(null);
   const [isChannelAdmin, setIsChannelAdmin] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -314,9 +316,11 @@ export default function Chat({
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-[#313338] relative h-dvh">
-      {/* Channel Header */}
-      <div className="flex items-center justify-between p-4 border-b border-[#23272a] bg-[#36393f]">
+    <div className="flex-1 flex bg-[#313338] relative h-dvh">
+      {/* Zone principale du chat */}
+      <div className="flex-1 flex flex-col">
+        {/* Channel Header */}
+        <div className="flex items-center justify-between p-4 border-b border-[#23272a] bg-[#36393f]">
         <div className="flex items-center gap-3">
           <svg className="w-5 h-5 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
             <path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h4l4 4 4-4h4c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/>
@@ -332,12 +336,21 @@ export default function Chat({
         {session && (
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setShowMembers(true)}
-              className="text-gray-400 hover:text-white transition-colors p-2 rounded hover:bg-[#40444b]"
-              title="Voir les membres"
+              onClick={() => setShowOnlineMembers(!showOnlineMembers)}
+              className={`transition-colors p-2 rounded hover:bg-[#40444b] ${showOnlineMembers ? 'text-white bg-[#40444b]' : 'text-gray-400 hover:text-white'}`}
+              title={showOnlineMembers ? "Masquer les membres connectés" : "Afficher les membres connectés"}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setShowMembers(true)}
+              className="text-gray-400 hover:text-white transition-colors p-2 rounded hover:bg-[#40444b]"
+              title="Voir tous les membres"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
             </button>
             <button
@@ -492,6 +505,15 @@ export default function Chat({
         onClose={() => setShowMembers(false)}
         session={session}
       />
+      </div>
+
+      {/* Liste des membres connectés */}
+      {showOnlineMembers && session && (
+        <OnlineMembers
+          channelName={channel}
+          session={session}
+        />
+      )}
     </div>
   );
 } 

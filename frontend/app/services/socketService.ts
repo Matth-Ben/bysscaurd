@@ -5,6 +5,9 @@ class SocketService {
   private messageListeners: Array<(msg: any) => void> = [];
   private historyListeners: Array<(data: { messages: any[], hasMore: boolean, totalCount: number, currentPage: number }) => void> = [];
   private deleteListeners: Array<(data: { messageId: string }) => void> = [];
+  private userJoinedListeners: Array<(data: { email: string; status: string; channel: string }) => void> = [];
+  private userLeftListeners: Array<(data: { email: string; status: string; channel: string }) => void> = [];
+  private statusChangeListeners: Array<(data: { email: string; status: string }) => void> = [];
 
   connect(url: string = "http://localhost:4000"): Socket {
     if (!this.socket) {
@@ -49,6 +52,21 @@ class SocketService {
     this.socket.on("message_deleted", (data: { messageId: string }) => {
       console.log("SocketService: Message supprimé", data.messageId);
       this.deleteListeners.forEach(listener => listener(data));
+    });
+
+    this.socket.on("user_joined_channel", (data: { email: string; status: string; channel: string }) => {
+      console.log("SocketService: Utilisateur rejoint le salon", data);
+      this.userJoinedListeners.forEach(listener => listener(data));
+    });
+
+    this.socket.on("user_left_channel", (data: { email: string; status: string; channel: string }) => {
+      console.log("SocketService: Utilisateur quitte le salon", data);
+      this.userLeftListeners.forEach(listener => listener(data));
+    });
+
+    this.socket.on("user_status_changed", (data: { email: string; status: string }) => {
+      console.log("SocketService: Statut utilisateur changé", data);
+      this.statusChangeListeners.forEach(listener => listener(data));
     });
   }
 
@@ -117,6 +135,36 @@ class SocketService {
       const index = this.deleteListeners.indexOf(callback);
       if (index > -1) {
         this.deleteListeners.splice(index, 1);
+      }
+    };
+  }
+
+  onUserJoined(callback: (data: { email: string; status: string; channel: string }) => void) {
+    this.userJoinedListeners.push(callback);
+    return () => {
+      const index = this.userJoinedListeners.indexOf(callback);
+      if (index > -1) {
+        this.userJoinedListeners.splice(index, 1);
+      }
+    };
+  }
+
+  onUserLeft(callback: (data: { email: string; status: string; channel: string }) => void) {
+    this.userLeftListeners.push(callback);
+    return () => {
+      const index = this.userLeftListeners.indexOf(callback);
+      if (index > -1) {
+        this.userLeftListeners.splice(index, 1);
+      }
+    };
+  }
+
+  onStatusChange(callback: (data: { email: string; status: string }) => void) {
+    this.statusChangeListeners.push(callback);
+    return () => {
+      const index = this.statusChangeListeners.indexOf(callback);
+      if (index > -1) {
+        this.statusChangeListeners.splice(index, 1);
       }
     };
   }
