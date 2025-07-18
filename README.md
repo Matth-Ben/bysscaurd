@@ -71,6 +71,8 @@ GOOGLE_CLIENT_SECRET=your_google_client_secret
 - [x] Stockage des messages dans MongoDB
 - [x] Broadcast des messages à tous les clients
 - [x] Historique des 50 derniers messages à la connexion
+- [x] Pagination des messages (50 par page)
+- [x] Gestion des permissions par salon
 
 ### Chat temps réel
 - [x] Connexion WebSocket côté client (Socket.io)
@@ -79,6 +81,13 @@ GOOGLE_CLIENT_SECRET=your_google_client_secret
 - [x] Formulaire d'envoi de message
 - [x] Désactivation du chat si non connecté
 - [x] UX moderne et responsive
+- [x] **Pagination Discord-like** : Chargement de 50 messages à la fois
+- [x] **Scroll infini** : Chargement automatique des anciens messages au scroll vers le haut
+- [x] **Bouton "Descendre"** : Retour rapide aux messages récents
+- [x] **Messages temporaires** : Affichage immédiat des messages envoyés
+- [x] **Auto-scroll intelligent** : Maintien de la position lors du chargement d'historique
+- [x] **Changement de salon** : Réinitialisation complète lors du changement de channel
+- [x] **Gestion des doublons** : Évite les messages en double lors du chargement
 
 ### Système de salons (channels)
 - [x] Création de salons texte (channels) via la sidebar
@@ -90,38 +99,51 @@ GOOGLE_CLIENT_SECRET=your_google_client_secret
 - [x] Salons privés
 - [x] Gestion avancée des salons (suppression, renommage)
 - [x] Affichage des membres par salon
+- [x] **Compteur de messages non lus** par salon
+- [x] **Badges de notification** sur les salons avec messages non lus
 - [ ] Audio/vocal par salon
 
 ### Avatars et profils
-- [x] Sélection d’un avatar parmi des images par défaut (page profil)
+- [x] Sélection d'un avatar parmi des images par défaut (page profil)
 - [x] Bio personnalisée (modification et affichage dans le profil)
-- [x] Statut personnalisable (en ligne, absent, occupé, invisible) avec pastille de couleur sur l’avatar
-- [x] Synchronisation immédiate de l’avatar, de la bio et du statut dans le menu, le chat et la page profil après modification
+- [x] Statut personnalisable (en ligne, absent, occupé, invisible) avec pastille de couleur sur l'avatar
+- [x] Synchronisation immédiate de l'avatar, de la bio et du statut dans le menu, le chat et la page profil après modification
 - [x] Modal sécurisée pour confirmation du changement de profil (mot de passe requis)
-- [x] Stockage de l’avatar, de la bio et du statut dans la base utilisateur et synchronisation via NextAuth/JWT
+- [x] Stockage de l'avatar, de la bio et du statut dans la base utilisateur et synchronisation via NextAuth/JWT
 - [x] Avatar personnalisé (upload ou via Google)
-- [x] Page profil enrichie (date d’inscription)
+- [x] Page profil enrichie (date d'inscription)
 
 ### Notifications
-- [ ] Notification visuelle lors de nouveaux messages (badge, highlight)
-- [ ] Notification sonore optionnelle
-- [ ] Notification navigateur (Web Notification API)
-- [ ] Mention @user avec notification ciblée
+- [x] Notification visuelle lors de nouveaux messages (badge, highlight)
+- [x] Notification sonore optionnelle (Web Audio API)
+- [x] Notification navigateur (Web Notification API)
+- [x] Mention @user avec notification ciblée
+- [x] Paramètres de notifications configurables
+- [x] Badges de messages non lus sur les salons
+- [x] Notifications toast avec animations
+- [x] **Compteur de messages non lus** en temps réel
+- [x] **Réinitialisation automatique** du compteur lors de la lecture
+- [x] **Notifications ciblées** par salon
+- [x] **Gestion des mentions** avec notifications spéciales
 
 ### Liste des membres connectés
-- [ ] Affichage en temps réel des membres présents dans chaque salon
-- [ ] Statut de connexion (en ligne, hors ligne, en train d’écrire…)
+- [x] Affichage en temps réel des membres présents dans chaque salon
+- [x] Statut de connexion (en ligne, hors ligne, en train d'écrire…)
 
 ### Expérience de chat enrichie
+- [x] **Système de pagination** : Chargement progressif de l'historique
+- [x] **Scroll automatique** vers le dernier message (amélioré)
+- [x] **Bouton de retour** aux messages récents
 - [ ] Système de reply/citation de message
 - [ ] Édition et suppression de ses propres messages
 - [ ] Réactions (emoji) sur les messages
 - [ ] Détection et preview des liens (OpenGraph)
-- [ ] Scroll automatique vers le dernier message (amélioré)
 
 ### Modération
+- [x] **Permissions par salon** : Admin, membres, invités
+- [x] **Gestion des accès** : Contrôle des permissions utilisateur
 - [ ] Rôles (admin, modérateur, membre)
-- [ ] Bannissement/silence d’un utilisateur
+- [ ] Bannissement/silence d'un utilisateur
 - [ ] Suppression de messages par les modérateurs
 
 ### Mobile & Responsive
@@ -140,16 +162,33 @@ GOOGLE_CLIENT_SECRET=your_google_client_secret
 
 ### Fichiers & médias
 - [ ] Envoi de fichiers/images dans le chat
-- [ ] Preview d’images et de vidéos
+- [ ] Preview d'images et de vidéos
 - [ ] Limite de taille/configuration
 
 ### Recherche
 - [ ] Recherche de messages par mot-clé
-- [ ] Recherche d’utilisateurs ou de salons
+- [ ] Recherche d'utilisateurs ou de salons
 
 ### Historique & archivage
-- [ ] Chargement progressif de l’historique (scroll infini)
+- [x] **Chargement progressif** de l'historique (scroll infini)
+- [x] **Pagination optimisée** : 50 messages par page
 - [ ] Archivage automatique des vieux salons/messages
+
+## 🆕 Fonctionnalités récentes
+
+### Chat Discord-like (Dernière mise à jour)
+- **Pagination intelligente** : Chargement de 50 messages à la fois
+- **Scroll infini** : Chargement automatique des anciens messages
+- **Bouton "Descendre"** : Retour rapide aux messages récents
+- **Messages temporaires** : Affichage immédiat des messages envoyés
+- **Auto-scroll intelligent** : Maintien de la position lors du chargement
+- **Changement de salon** : Réinitialisation complète lors du changement de channel
+
+### Notifications améliorées
+- **Compteur de messages non lus** en temps réel
+- **Badges visuels** sur les salons avec messages non lus
+- **Réinitialisation automatique** du compteur lors de la lecture
+- **Notifications ciblées** par salon
 
 ## 📁 Structure du projet
 
@@ -162,21 +201,37 @@ discord-lite/
 │   ├── .env
 │   ├── app/
 │   │   ├── api/auth/[...nextauth]/route.ts
+│   │   ├── api/channels/route.ts
 │   │   ├── components/
 │   │   │   ├── AuthButton.tsx
 │   │   │   ├── LoginForm.tsx
 │   │   │   ├── RegisterForm.tsx
 │   │   │   ├── MenuLinks.tsx
 │   │   │   ├── SessionProviderClient.tsx
-│   │   │   └── Chat.tsx
+│   │   │   ├── Chat.tsx
+│   │   │   ├── ChannelList.tsx
+│   │   │   ├── CreateChannelModal.tsx
+│   │   │   ├── ChannelMembers.tsx
+│   │   │   ├── ChannelPermissions.tsx
+│   │   │   ├── AvatarSelector.tsx
+│   │   │   ├── WelcomeBanner.tsx
+│   │   │   └── NoChannelSelected.tsx
+│   │   ├── hooks/
+│   │   │   ├── useSocket.ts
+│   │   │   └── useNotifications.ts
 │   │   ├── login/page.tsx
 │   │   ├── register/page.tsx
 │   │   ├── profile/page.tsx
+│   │   ├── join/[inviteToken]/page.tsx
 │   │   └── page.tsx
 ├── backend/ # Node.js + WebSocket
 │   ├── Dockerfile
 │   ├── .env
-│   └── src/index.js
+│   ├── src/index.js
+│   ├── set-admin.js
+│   └── uploads/
+│       ├── avatars/
+│       └── channels/
 ├── mongo/ # volume MongoDB
 └── README.md
 ```
@@ -221,6 +276,19 @@ discord-lite/
 - `/register` : Inscription (Google + email/mot de passe)
 - `/profile` : Profil utilisateur (si connecté)
 
+## 💬 Utilisation du chat
+
+### Navigation
+- **Changement de salon** : Cliquez sur un salon dans la sidebar pour y accéder
+- **Historique** : Les 50 derniers messages s'affichent automatiquement
+- **Chargement progressif** : Scroll vers le haut pour charger les anciens messages
+- **Retour aux récents** : Utilisez le bouton "Descendre" pour revenir aux messages récents
+
+### Notifications
+- **Badges rouges** : Indiquent le nombre de messages non lus par salon
+- **Réinitialisation** : Le compteur se remet à zéro quand vous lisez les messages
+- **Notifications navigateur** : Alertes pour les nouveaux messages
+
 ## 💡 Règles de développement
 
 - Utiliser des composants propres, modulaires
@@ -244,21 +312,31 @@ docker-compose logs -f backend
 docker-compose up --build
 ```
 
-### Debug
-- **Frontend** : http://localhost:3000
-- **Backend** : http://localhost:4000
-- **MongoDB** : localhost:4567 (MongoDB Compass)
-- **Logs** : `docker-compose logs -f [service]`
+### Debugging
+```bash
+# Logs en temps réel
+docker-compose logs -f
 
-## 👤 Gestion des avatars, bio et statut
+# Logs d'un service spécifique
+docker-compose logs -f backend | grep "Message"
+docker-compose logs -f frontend | grep "Chat"
+```
 
-- Chaque utilisateur peut choisir un avatar parmi une liste d’images par défaut depuis la page `/profile`.
-- La bio et le statut (en ligne, absent, occupé, invisible) sont modifiables et affichés dans le profil.
-- Le statut s’affiche par une pastille colorée sur l’avatar dans le menu (vert = en ligne, jaune = absent, rouge = occupé, gris = invisible).
-- Après modification, une modal s’ouvre pour demander le mot de passe (sécurité).
-- L’avatar, la bio et le statut sont synchronisés instantanément dans toute l’interface (menu, chat, page profil) grâce à un refresh du JWT NextAuth.
-- Le backend expose une route `/auth/user?email=...` pour permettre au frontend de récupérer les infos à jour à chaque connexion ou modification.
-- Les données sont stockées dans la base MongoDB côté utilisateur.
-- Le chat affiche l’avatar et le statut de chaque auteur de message (optimisé, pas de requête supplémentaire).
+## 🐛 Corrections récentes
 
-**À venir** : upload d’avatar personnalisé, date d’inscription, etc.
+### Chat et pagination
+- ✅ **Changement de salon** : Réinitialisation complète des états
+- ✅ **Messages temporaires** : Affichage immédiat des messages envoyés
+- ✅ **Pagination** : Chargement correct des anciens messages
+- ✅ **Auto-scroll** : Maintien de la position lors du chargement
+- ✅ **Doublons** : Évite les messages en double
+
+### Notifications
+- ✅ **Compteur de messages non lus** : Mise à jour en temps réel
+- ✅ **Badges visuels** : Affichage correct sur les salons
+- ✅ **Réinitialisation** : Remise à zéro lors de la lecture
+
+### Performance
+- ✅ **Optimisation des re-renders** : Évite les boucles infinies
+- ✅ **Gestion mémoire** : Nettoyage des listeners WebSocket
+- ✅ **État local** : Synchronisation correcte avec le serveur
