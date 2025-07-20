@@ -1814,5 +1814,32 @@ app.get("/link-preview", async (req, res) => {
   }
 });
 
+// Route : rejoindre un serveur via un lien d'invitation
+app.post("/servers/join/:inviteToken", async (req, res) => {
+  const { inviteToken } = req.params;
+  const { userEmail } = req.body;
+  
+  if (!userEmail) return res.status(400).json({ error: "Email requis" });
+  
+  try {
+    const server = await ServerModel.findOne({ inviteToken });
+    if (!server) return res.status(404).json({ error: "Lien d'invitation invalide" });
+    
+    // Vérifier si l'utilisateur est déjà membre
+    if (server.owner === userEmail || server.members.find(m => m.email === userEmail)) {
+      return res.status(409).json({ error: "Déjà membre du serveur" });
+    }
+    
+    // Ajouter l'utilisateur comme membre avec le rôle par défaut
+    server.members.push({ email: userEmail, role: "Utilisateur" });
+    await server.save();
+    
+    res.json({ message: "Ajouté au serveur", server: server.name });
+  } catch (error) {
+    console.error("Erreur lors de la jointure du serveur:", error);
+    res.status(500).json({ error: "Erreur lors de la jointure du serveur" });
+  }
+});
+
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => console.log(`✅ Backend démarré sur le port ${PORT}`));

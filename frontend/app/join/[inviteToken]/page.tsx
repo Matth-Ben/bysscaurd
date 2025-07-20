@@ -1,9 +1,10 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, use } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession, signIn } from "next-auth/react";
 
-export default function JoinChannelPage({ params }: { params: { inviteToken: string } }) {
+export default function JoinChannelPage({ params }: { params: Promise<{ inviteToken: string }> }) {
+  const { inviteToken } = use(params);
   const { data: session, status } = useSession();
   const router = useRouter();
   const [message, setMessage] = useState("Connexion au salon...");
@@ -20,11 +21,31 @@ export default function JoinChannelPage({ params }: { params: { inviteToken: str
       try {
         const userEmail = session && session.user && session.user.email ? session.user.email : null;
         if (!userEmail) return;
-        const res = await fetch(`http://localhost:4000/channels/join/${params.inviteToken}`, {
+        
+        // Essayer d'abord de rejoindre un serveur
+        let res = await fetch(`http://localhost:4000/servers/join/${inviteToken}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userEmail })
         });
+        
+        if (res.ok) {
+          const data = await res.json();
+          setMessage(`Vous avez rejoint le serveur "${data.server}" ! Redirection...`);
+          setSuccess(true);
+          setTimeout(() => {
+            router.push("/");
+          }, 2500);
+          return;
+        }
+        
+        // Si ce n'est pas un serveur, essayer de rejoindre un channel
+        res = await fetch(`http://localhost:4000/channels/join/${inviteToken}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userEmail })
+        });
+        
         const data = await res.json();
         if (res.ok) {
           setMessage(`Vous avez rejoint le salon #${data.channel} ! Redirection...`);
@@ -33,14 +54,14 @@ export default function JoinChannelPage({ params }: { params: { inviteToken: str
             router.push("/");
           }, 2500);
         } else {
-          setError(data.error || "Erreur lors de la connexion au salon.");
+          setError(data.error || "Lien d'invitation invalide.");
         }
       } catch {
         setError("Erreur de connexion au serveur.");
       }
     };
     join();
-  }, [status, session, params.inviteToken, router]);
+  }, [status, session, inviteToken, router]);
 
   if (status === "loading") {
     return (
