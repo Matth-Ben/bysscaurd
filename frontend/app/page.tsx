@@ -4,8 +4,8 @@ import { useSession } from "next-auth/react";
 import { useSocket } from "./hooks/useSocket";
 import { useNotifications } from "./hooks/useNotifications";
 import Chat from "./components/chat/Chat";
-import ChannelList from "./components/channels/ChannelList";
-import CreateChannelModal from "./components/channels/CreateChannelModal";
+import ServerList from "./components/servers/ServerList";
+import ServerChannelList from "./components/servers/ServerChannelList";
 import NotificationToast from "./components/notifications/NotificationToast";
 import NotificationSettings from "./components/notifications/NotificationSettings";
 import AuthButton from "./components/auth/AuthButton";
@@ -13,29 +13,40 @@ import WelcomeBanner from "./components/WelcomeBanner";
 import NoChannelSelected from "./components/NoChannelSelected";
 import MenuLinks from "./components/MenuLinks";
 
+interface Server {
+  _id: string;
+  name: string;
+  description: string;
+  icon?: string;
+  owner: string;
+  createdAt: string;
+}
+
 interface Channel {
   _id: string;
   name: string;
+  description: string;
+  type: 'text' | 'voice';
+  position: number;
+  isPrivate: boolean;
   createdAt: string;
-  description?: string;
-  owner?: string;
-  members?: string[];
-  permissions?: any;
-  icon?: string;
 }
 
 export default function Home() {
   const { data: session } = useSession();
-  const [channels, setChannels] = useState<Channel[]>([]);
+  const [servers, setServers] = useState<Server[]>([]);
+  const [selectedServer, setSelectedServer] = useState<string | null>(null);
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
-  const [showCreateChannel, setShowCreateChannel] = useState(false);
+  const [currentServer, setCurrentServer] = useState<Server | null>(null);
+  const [currentChannels, setCurrentChannels] = useState<Channel[]>([]);
+  const [userPermissions, setUserPermissions] = useState<any>(null);
 
   // Utiliser les nouveaux hooks
   const socketConfig = useMemo(() => ({
     session,
     selectedChannel,
-    channels
-  }), [session, selectedChannel, channels]);
+    channels: currentChannels
+  }), [session, selectedChannel, currentChannels]);
 
   const { socket, isConnected, sendMessage, deleteMessage } = useSocket(socketConfig);
 
@@ -54,56 +65,138 @@ export default function Home() {
   const addToastRef = useRef(addToast);
   addToastRef.current = addToast;
 
-  // Charger les salons
-  const fetchChannels = useCallback(async (userEmail: string) => {
+  // Charger les serveurs
+  const fetchServers = useCallback(async (userEmail: string) => {
     try {
-      const response = await fetch(`http://localhost:4000/channels?userEmail=${encodeURIComponent(userEmail)}`);
+      const response = await fetch(`http://localhost:4000/servers?userEmail=${encodeURIComponent(userEmail)}`);
       if (response.ok) {
-        const channelsData = await response.json();
-        setChannels(channelsData);
+        const serversData = await response.json();
+        setServers(serversData);
       } else {
-        console.error("Erreur lors du chargement des salons:", response.status);
-        addToastRef.current("Erreur lors du chargement des salons", "error");
+        console.error("Erreur lors du chargement des serveurs:", response.status);
+        addToastRef.current("Erreur lors du chargement des serveurs", "error");
       }
     } catch (error) {
-      console.error("Erreur lors du chargement des salons:", error);
-      addToastRef.current("Erreur lors du chargement des salons", "error");
+      console.error("Erreur lors du chargement des serveurs:", error);
+      addToastRef.current("Erreur lors du chargement des serveurs", "error");
     }
   }, []);
 
-  // Charger les salons au changement de session
+  // Charger un serveur avec ses salons et permissions
+  const fetchServerData = useCallback(async (serverId: string, userEmail: string) => {
+    try {
+      // Récupérer les canaux du serveur
+      const channelsResponse = await fetch(`http://localhost:4000/servers/${serverId}/channels?userEmail=${encodeURIComponent(userEmail)}`);
+      if (channelsResponse.ok) {
+        const channels = await channelsResponse.json();
+        setCurrentChannels(channels);
+        
+        // Sélectionner automatiquement le premier salon textuel
+        const firstTextChannel = channels.find((ch: Channel) => ch.type === 'text');
+        if (firstTextChannel) {
+          setSelectedChannel(firstTextChannel._id);
+        }
+      } else {
+        console.error("Erreur lors du chargement des canaux:", channelsResponse.status);
+        addToastRef.current("Erreur lors du chargement des canaux", "error");
+      }
+      
+      // Récupérer les permissions du serveur
+      const permissionsResponse = await fetch(`http://localhost:4000/servers/${serverId}/permissions?userEmail=${encodeURIComponent(userEmail)}`);
+      if (permissionsResponse.ok) {
+        const permissionsData = await permissionsResponse.json();
+        setUserPermissions(permissionsData.permissions);
+      } else {
+        console.error("Erreur lors du chargement des permissions:", permissionsResponse.status);
+      }
+      
+      // Récupérer les informations du serveur
+      const serverResponse = await fetch(`http://localhost:4000/servers/${serverId}?userEmail=${encodeURIComponent(userEmail)}`);
+      if (serverResponse.ok) {
+        const serverData = await serverResponse.json();
+        setCurrentServer(serverData.server);
+      } else {
+        console.error("Erreur lors du chargement du serveur:", serverResponse.status);
+        addToastRef.current("Erreur lors du chargement du serveur", "error");
+      }
+    } catch (error) {
+      console.error("Erreur lors du chargement du serveur:", error);
+      addToastRef.current("Erreur lors du chargement du serveur", "error");
+    }
+  }, []);
+
+  // Charger les serveurs au changement de session
   useEffect(() => {
     if (session?.user?.email) {
-      fetchChannels(session.user.email);
+      fetchServers(session.user.email);
     }
-  }, [session?.user?.email, fetchChannels]);
+  }, [session?.user?.email, fetchServers]);
 
-  // Sélectionner automatiquement le premier salon si aucun n'est sélectionné
-  useEffect(() => {
-    if (channels.length > 0 && !selectedChannel) {
-      setSelectedChannel(channels[0].name);
+  // Gérer la sélection d'un serveur
+  const handleSelectServer = useCallback((serverId: string) => {
+    setSelectedServer(serverId);
+    setSelectedChannel(null);
+    setCurrentServer(null);
+    setCurrentChannels([]);
+    
+    if (serverId !== "dm" && session?.user?.email) {
+      fetchServerData(serverId, session.user.email);
     }
-  }, [channels]);
+  }, [session?.user?.email, fetchServerData]);
 
-  // Gérer la création de salon
-  const handleCreateChannel = useCallback(async (channelData: any) => {
+  // Gérer la création de serveur
+  const handleCreateServer = useCallback(async (name: string, description: string) => {
     if (!session?.user?.email) return;
 
     try {
-      const response = await fetch("http://localhost:4000/channels", {
+      const response = await fetch("http://localhost:4000/servers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...channelData,
-          owner: session.user.email
+          name,
+          description,
+          ownerEmail: session.user.email
+        })
+      });
+
+      if (response.ok) {
+        const newServer = await response.json();
+        setServers(prev => [...prev, newServer]);
+        addToast(`Serveur "${newServer.name}" créé avec succès`, "success");
+        
+        // Sélectionner automatiquement le nouveau serveur
+        handleSelectServer(newServer._id);
+      } else {
+        const error = await response.json();
+        addToast(error.error || "Erreur lors de la création du serveur", "error");
+      }
+    } catch (error) {
+      addToast("Erreur de connexion", "error");
+    }
+  }, [session?.user?.email, addToast, handleSelectServer]);
+
+  // Gérer la création de salon
+  const handleCreateChannel = useCallback(async (name: string, description: string, type: 'text' | 'voice', isPrivate: boolean = false, allowedRoles: string[] = []) => {
+    if (!selectedServer || !session?.user?.email) return;
+
+    try {
+      const response = await fetch(`http://localhost:4000/servers/${selectedServer}/channels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          description,
+          type,
+          userEmail: session.user.email,
+          isPrivate,
+          allowedRoles
         })
       });
 
       if (response.ok) {
         const newChannel = await response.json();
-        setChannels(prev => [...prev, newChannel]);
-        setSelectedChannel(newChannel.name);
-        setShowCreateChannel(false);
+        setCurrentChannels(prev => [...prev, newChannel]);
+        setSelectedChannel(newChannel._id);
         addToast(`Salon "${newChannel.name}" créé avec succès`, "success");
       } else {
         const error = await response.json();
@@ -112,9 +205,7 @@ export default function Home() {
     } catch (error) {
       addToast("Erreur de connexion", "error");
     }
-  }, [session?.user?.email, addToast]);
-
-
+  }, [selectedServer, session?.user?.email, addToast]);
 
   // Demander les permissions de notification
   const handleRequestNotificationPermission = useCallback(async () => {
@@ -142,79 +233,59 @@ export default function Home() {
 
   return (
     <div className="h-screen bg-[#313338] flex">
-      {/* Sidebar */}
-      <div className="w-64 bg-[#2b2d31] flex flex-col">
-        {/* Header */}
-        <div className="p-4 border-b border-[#23272a]">
-          <div className="flex items-center gap-3">
-            <img
-              src={session.user?.image || "/avatars/avatar1.png"}
-              alt={session.user?.name || "Avatar"}
-              className="w-8 h-8 rounded-full"
-            />
-            <div className="flex-1 min-w-0">
-              <p className="text-white font-medium text-sm truncate">
-                {session.user?.name || session.user?.email}
-              </p>
-              <div className="flex items-center gap-1">
-                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <span className="text-gray-400 text-xs">En ligne</span>
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* Liste des serveurs */}
+      <ServerList
+        servers={servers}
+        selectedServer={selectedServer}
+        onSelectServer={handleSelectServer}
+        onCreateServer={handleCreateServer}
+        currentUserEmail={session.user?.email || ""}
+      />
 
-        {/* Menu Links */}
-        <MenuLinks />
-
-        {/* Channels */}
-                 <div className="flex-1 overflow-y-auto">
-           <ChannelList
-             channels={channels}
-             selectedChannel={selectedChannel}
-             onSelectChannel={setSelectedChannel}
-             onCreateChannel={(name: string) => handleCreateChannel({ name })}
-             unreadCounts={unreadCounts}
-           />
-         </div>
-
-                 {/* Footer */}
-         <div className="p-4 border-t border-[#23272a]">
-           <div className="flex items-center gap-2">
-             <NotificationSettings
-               settings={settings}
-               onUpdateSettings={updateSettings}
-               onRequestPermission={requestBrowserPermission}
-             />
-           </div>
-         </div>
-      </div>
+      {/* Liste des salons du serveur */}
+      <ServerChannelList
+        server={currentServer}
+        channels={currentChannels}
+        selectedChannel={selectedChannel}
+        onSelectChannel={setSelectedChannel}
+        onCreateChannel={handleCreateChannel}
+        currentUserEmail={session.user?.email || ""}
+        userPermissions={userPermissions}
+      />
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col">
-        {selectedChannel ? (
+                {selectedChannel && selectedServer && selectedServer !== "dm" ? (
           <Chat
             channel={selectedChannel}
-            channels={channels}
-            setChannels={setChannels}
-            fetchChannels={fetchChannels}
+            serverId={selectedServer}
+            channels={currentChannels}
+            setChannels={setCurrentChannels}
+            fetchChannels={() => {
+              if (selectedServer && session?.user?.email) {
+                return fetchServerData(selectedServer, session.user.email);
+              }
+              return Promise.resolve();
+            }}
             setSelectedChannel={setSelectedChannel}
             session={session}
-
             socket={socket}
             onResetUnreadCount={resetUnreadCount}
           />
+        ) : selectedServer === "dm" ? (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center text-gray-400">
+              <svg className="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+              <h2 className="text-xl font-bold mb-2">Messages privés</h2>
+              <p>Fonctionnalité à venir</p>
+            </div>
+          </div>
         ) : (
           <NoChannelSelected />
         )}
       </div>
-
-             {/* Modals */}
-       <CreateChannelModal
-         isOpen={showCreateChannel}
-         onClose={() => setShowCreateChannel(false)}
-         onCreateChannel={(name: string) => handleCreateChannel({ name })}
-       />
 
       {/* Notifications */}
       <NotificationToast toasts={toasts} removeToast={removeToast} />

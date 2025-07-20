@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { socketService } from "../../services/socketService";
-import ChannelPermissions from "../channels/ChannelPermissions";
+
 import ChannelMembers from "../channels/ChannelMembers";
 import OnlineMembers from "../channels/OnlineMembers";
 import MessageItem from "./MessageItem";
@@ -31,6 +31,7 @@ interface Message {
 
 interface Props {
   channel: string;
+  serverId?: string;
   channels: any[];
   setChannels: (channels: any[]) => void;
   fetchChannels: (userEmail: string) => Promise<void>;
@@ -43,6 +44,7 @@ interface Props {
 
 export default function Chat({ 
   channel, 
+  serverId,
   channels, 
   setChannels, 
   fetchChannels, 
@@ -55,7 +57,7 @@ export default function Chat({
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isOwner, setIsOwner] = useState(false);
-  const [showPermissions, setShowPermissions] = useState(false);
+
   const [showMembers, setShowMembers] = useState(false);
   const [showOnlineMembers, setShowOnlineMembers] = useState(true);
   const [userPermissions, setUserPermissions] = useState<any>(null);
@@ -226,21 +228,36 @@ export default function Chat({
   // Charger les permissions et les utilisateurs du channel
   useEffect(() => {
     if (channel && session?.user?.email) {
+      // Vérifier si le canal existe dans la liste
+      const currentChannel = channels.find(ch => ch._id === channel);
+      if (!currentChannel) {
+        console.warn("Canal sélectionné non trouvé, redirection vers le premier canal disponible");
+        // Rediriger vers le premier canal textuel disponible
+        const firstTextChannel = channels.find(ch => ch.type === 'text');
+        if (firstTextChannel && setSelectedChannel) {
+          setSelectedChannel(firstTextChannel._id);
+          return;
+        }
+      }
       fetchUserPermissions();
       fetchChannelUsers();
     }
-  }, [channel, session?.user?.email]);
+  }, [channel, session?.user?.email, channels, setSelectedChannel]);
 
   const fetchUserPermissions = async () => {
     try {
-      const response = await fetch(
-        `http://localhost:4000/channels/${encodeURIComponent(channel)}/permissions?userEmail=${encodeURIComponent(session?.user?.email || "")}`
+      // Récupérer uniquement les permissions du serveur
+      const serverResponse = await fetch(
+        `http://localhost:4000/servers/${serverId}/permissions?userEmail=${encodeURIComponent(session?.user?.email || "")}`
       );
-      if (response.ok) {
-        const data = await response.json();
-        setUserPermissions(data.permissions);
-        setIsChannelAdmin(data.isChannelAdmin);
-        setIsOwner(data.isOwner);
+      
+      if (serverResponse.ok) {
+        const serverData = await serverResponse.json();
+        setUserPermissions(serverData.permissions);
+        setIsChannelAdmin(serverData.isServerAdmin);
+        setIsOwner(serverData.isOwner);
+      } else {
+        console.error("Erreur lors du chargement des permissions du serveur:", serverResponse.status);
       }
     } catch (error) {
       console.error("Erreur lors du chargement des permissions:", error);
@@ -250,7 +267,7 @@ export default function Chat({
   const fetchChannelUsers = async () => {
     try {
       const response = await fetch(
-        `http://localhost:4000/channels/${encodeURIComponent(channel)}/members?userEmail=${encodeURIComponent(session?.user?.email || "")}`
+        `http://localhost:4000/channels/${channel}/members?userEmail=${encodeURIComponent(session?.user?.email || "")}`
       );
       if (response.ok) {
         const data = await response.json();
@@ -512,16 +529,7 @@ export default function Chat({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
             </button>
-            <button
-              onClick={() => setShowPermissions(true)}
-              className="text-gray-400 hover:text-white transition-colors p-2 rounded hover:bg-[#40444b]"
-              title="Gérer les permissions"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            </button>
+
           </div>
         )}
       </div>
@@ -698,19 +706,11 @@ export default function Chat({
         </form>
       </div>
 
-      {/* Modal des permissions */}
-      <ChannelPermissions
-        channelName={channel}
-        isOpen={showPermissions}
-        onClose={() => setShowPermissions(false)}
-        fetchChannels={fetchChannels}
-        setSelectedChannel={setSelectedChannel}
-        session={session}
-      />
+
 
       {/* Modal des membres */}
       <ChannelMembers
-        channelName={channel}
+        channelId={channel}
         isOpen={showMembers}
         onClose={() => setShowMembers(false)}
         session={session}
@@ -718,9 +718,9 @@ export default function Chat({
       </div>
 
       {/* Liste des membres connectés */}
-      {showOnlineMembers && session && (
+      {showOnlineMembers && session && serverId && (
         <OnlineMembers
-          channelName={channel}
+          serverId={serverId}
           session={session}
         />
       )}

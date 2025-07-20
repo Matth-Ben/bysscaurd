@@ -100,48 +100,35 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.models.User || mongoose.model("User", userSchema);
 
-// Modèle Channel (salon) dynamique avec owner, rôles et membres
-const channelSchema = new mongoose.Schema({
-  name: { type: String, required: true, unique: true },
+// Modèle Server (serveur) avec salons multiples
+const serverSchema = new mongoose.Schema({
+  name: { type: String, required: true },
   description: { type: String, default: "" },
   owner: { type: String, required: true }, // email du propriétaire
   icon: { type: String, default: "/icons/default.png" }, // icône par défaut
-  roles: {
-    type: Object,
-    default: {
-      Admin: {
-        canDeleteChannel: true,
-        canManageUsers: true,
-        canDeleteMessages: true,
-        canBanUsers: true,
-        canManageRoles: true
-      },
-      Modérateur: {
-        canDeleteChannel: false,
-        canManageUsers: true,
-        canDeleteMessages: true,
-        canBanUsers: false,
-        canManageRoles: false
-      },
-      Utilisateur: {
-        canDeleteChannel: false,
-        canManageUsers: false,
-        canDeleteMessages: false,
-        canBanUsers: false,
-        canManageRoles: false
-      }
-    }
-  },
   members: {
     type: [
       {
         email: { type: String, required: true },
-        role: { type: String, required: true }
+        role: { type: String, required: true, default: "Utilisateur" }
       }
     ],
     default: []
   },
   inviteToken: { type: String, default: "" },
+  createdAt: { type: Date, default: Date.now },
+});
+const ServerModel = mongoose.models.Server || mongoose.model("Server", serverSchema);
+
+// Modèle Channel (salon) appartenant à un serveur
+const channelSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  description: { type: String, default: "" },
+  serverId: { type: mongoose.Schema.Types.ObjectId, ref: 'Server', required: true },
+  type: { type: String, enum: ['text', 'voice'], default: 'text' },
+  position: { type: Number, default: 0 },
+  isPrivate: { type: Boolean, default: false },
+  allowedRoles: [{ type: String }], // rôles autorisés si privé
   createdAt: { type: Date, default: Date.now },
 });
 const Channel = mongoose.models.Channel || mongoose.model("Channel", channelSchema);
@@ -150,7 +137,8 @@ const Channel = mongoose.models.Channel || mongoose.model("Channel", channelSche
 const messageSchema = new mongoose.Schema({
   user: { type: String, required: true },
   content: { type: String, required: true },
-  channel: { type: String, required: true }, // nom du salon
+  channelId: { type: mongoose.Schema.Types.ObjectId, ref: 'Channel', required: true }, // ID du salon
+  serverId: { type: mongoose.Schema.Types.ObjectId, ref: 'Server', required: true }, // ID du serveur
   timestamp: { type: Date, default: Date.now },
   editedAt: { type: Date, default: null },
   replyTo: { type: mongoose.Schema.Types.ObjectId, ref: 'Message', default: null }, // Message auquel on répond
@@ -232,19 +220,22 @@ io.on("connection", (socket) => {
   });
 
   // Rejoindre un salon
-  socket.on("join_channel", async (channel) => {
-    if (!channel) return;
-    console.log("User joining channel:", channel, "Socket ID:", socket.id);
-    socket.join(channel);
-    console.log("User joined channel:", channel, "Total clients in room:", io.sockets.adapter.rooms.get(channel)?.size || 0);
+  socket.on("join_channel", async (data) => {
+    const { channelId, serverId } = typeof data === 'string' ? { channelId: data } : data;
+    if (!channelId || !serverId) return;
+    
+    const roomName = `channel_${channelId}`;
+    console.log("User joining channel:", channelId, "in server:", serverId, "Socket ID:", socket.id);
+    socket.join(roomName);
+    console.log("User joined channel:", roomName, "Total clients in room:", io.sockets.adapter.rooms.get(roomName)?.size || 0);
     
     // Envoyer l'historique du salon (50 plus récents)
-    const history = await Message.find({ channel })
+    const history = await Message.find({ channelId })
       .sort({ timestamp: -1 })
       .limit(50)
       .sort({ timestamp: 1 }); // Re-trier pour avoir l'ordre chronologique
     
-    console.log("Messages trouvés en BDD pour", channel, ":", history.length);
+    console.log("Messages trouvés en BDD pour", channelId, ":", history.length);
     
     const enrichedHistory = await Promise.all(history.map(async (msg) => {
       const user = await User.findOne({ name: msg.user });
@@ -255,7 +246,7 @@ io.on("connection", (socket) => {
     }));
     
     // Vérifier s'il y a plus de messages
-    const totalCount = await Message.countDocuments({ channel });
+    const totalCount = await Message.countDocuments({ channelId });
     const hasMore = totalCount > 50;
     
     socket.emit("message_history", {
@@ -265,28 +256,32 @@ io.on("connection", (socket) => {
       currentPage: 0
     });
     
-    console.log("Historique envoyé:", enrichedHistory.length, "messages pour le salon:", channel, "hasMore:", hasMore);
+    console.log("Historique envoyé:", enrichedHistory.length, "messages pour le salon:", channelId, "hasMore:", hasMore);
   });
 
   // Quitter un salon
-  socket.on("leave_channel", (channel) => {
-    if (channel) socket.leave(channel);
+  socket.on("leave_channel", (data) => {
+    const { channelId } = typeof data === 'string' ? { channelId: data } : data;
+    if (channelId) {
+      const roomName = `channel_${channelId}`;
+      socket.leave(roomName);
+    }
   });
 
   // Demander l'historique des messages d'un salon
   socket.on("get_message_history", async (data) => {
-    const { channel, page = 0, limit = 50 } = typeof data === 'string' ? { channel: data } : data;
-    if (!channel) return;
-    console.log("Demande d'historique pour le salon:", channel, "page:", page, "limit:", limit);
+    const { channelId, page = 0, limit = 50 } = typeof data === 'string' ? { channelId: data } : data;
+    if (!channelId) return;
+    console.log("Demande d'historique pour le salon:", channelId, "page:", page, "limit:", limit);
     
     try {
       const skip = page * limit;
-      const history = await Message.find({ channel })
+      const history = await Message.find({ channelId })
         .sort({ timestamp: 1 })
         .skip(skip)
         .limit(limit);
       
-      console.log("Messages trouvés en BDD pour", channel, ":", history.length, "skip:", skip);
+      console.log("Messages trouvés en BDD pour", channelId, ":", history.length, "skip:", skip);
       
       // Enrichir chaque message avec l'avatar de l'auteur
       const enrichedHistory = await Promise.all(history.map(async (msg) => {
@@ -298,7 +293,7 @@ io.on("connection", (socket) => {
       }));
       
       // Vérifier s'il y a plus de messages
-      const totalCount = await Message.countDocuments({ channel });
+      const totalCount = await Message.countDocuments({ channelId });
       const hasMore = skip + limit < totalCount;
       
       socket.emit("message_history", {
@@ -308,7 +303,7 @@ io.on("connection", (socket) => {
         currentPage: page
       });
       
-      console.log("Historique envoyé:", enrichedHistory.length, "messages pour le salon:", channel, "hasMore:", hasMore);
+      console.log("Historique envoyé:", enrichedHistory.length, "messages pour le salon:", channelId, "hasMore:", hasMore);
     } catch (error) {
       console.error("Erreur lors de la récupération de l'historique:", error);
     }
@@ -316,16 +311,19 @@ io.on("connection", (socket) => {
 
   // Réception d'un message dans un salon
   socket.on("message", async (data) => {
-    // data : { user, content, channel, replyTo? }
-    if (!data || !data.user || !data.content || !data.channel) return;
+    // data : { user, content, channelId, serverId, replyTo? }
+    if (!data || !data.user || !data.content || !data.channelId || !data.serverId) return;
     console.log("Message reçu du client:", data);
-    console.log("Nombre de clients dans la room", data.channel, ":", io.sockets.adapter.rooms.get(data.channel)?.size || 0);
+    
+    const roomName = `channel_${data.channelId}`;
+    console.log("Nombre de clients dans la room", roomName, ":", io.sockets.adapter.rooms.get(roomName)?.size || 0);
     
     try {
       const messageData = { 
         user: data.user, 
         content: data.content, 
-        channel: data.channel 
+        channelId: data.channelId,
+        serverId: data.serverId
       };
       
       // Ajouter replyTo si présent
@@ -335,7 +333,7 @@ io.on("connection", (socket) => {
       }
       
       const msg = await Message.create(messageData);
-      console.log("✅ Message enregistré en BDD:", msg._id, "pour le salon:", data.channel);
+      console.log("✅ Message enregistré en BDD:", msg._id, "pour le salon:", data.channelId);
       
       // Enrichir le message avec l'avatar de l'auteur
       const user = await User.findOne({ name: data.user });
@@ -343,9 +341,9 @@ io.on("connection", (socket) => {
         ...msg.toObject(),
         avatar: user?.avatar || "/avatars/avatar1.png"
       };
-      console.log("Broadcasting message to channel:", data.channel);
-      console.log("Clients in room:", io.sockets.adapter.rooms.get(data.channel)?.size || 0);
-      io.to(data.channel).emit("message", enrichedMsg); // broadcast dans le salon
+      console.log("Broadcasting message to channel:", roomName);
+      console.log("Clients in room:", io.sockets.adapter.rooms.get(roomName)?.size || 0);
+      io.to(roomName).emit("message", enrichedMsg); // broadcast dans le salon
     } catch (error) {
       console.error("❌ Erreur lors de l'enregistrement du message:", error);
     }
@@ -502,6 +500,193 @@ io.on("connection", (socket) => {
 });
 
 app.get("/", (req, res) => res.send("API en ligne 🚀"));
+
+// Routes pour les serveurs
+app.post("/servers", async (req, res) => {
+  const { name, description, ownerEmail } = req.body;
+  if (!name || !ownerEmail) {
+    return res.status(400).json({ error: "Nom et propriétaire requis" });
+  }
+
+  try {
+    const server = await ServerModel.create({
+      name,
+      description: description || "",
+      owner: ownerEmail,
+      members: [{ email: ownerEmail, role: "Admin" }]
+    });
+
+    // Créer automatiquement un salon général
+    await Channel.create({
+      name: "général",
+      description: "Salon général du serveur",
+      serverId: server._id,
+      position: 0
+    });
+
+    res.status(201).json(server);
+  } catch (error) {
+    console.error("Erreur lors de la création du serveur:", error);
+    res.status(500).json({ error: "Erreur lors de la création du serveur" });
+  }
+});
+
+// Récupérer les serveurs d'un utilisateur
+app.get("/servers", async (req, res) => {
+  const { userEmail } = req.query;
+  if (!userEmail) {
+    return res.status(400).json({ error: "Email utilisateur requis" });
+  }
+
+  try {
+    const servers = await ServerModel.find({
+      $or: [
+        { owner: userEmail },
+        { "members.email": userEmail }
+      ]
+    }).sort({ createdAt: 1 });
+
+    res.json(servers);
+  } catch (error) {
+    console.error("Erreur lors de la récupération des serveurs:", error);
+    res.status(500).json({ error: "Erreur lors de la récupération des serveurs" });
+  }
+});
+
+// Récupérer un serveur avec ses salons
+app.get("/servers/:serverId", async (req, res) => {
+  const { serverId } = req.params;
+  const { userEmail } = req.query;
+
+  if (!userEmail) {
+    return res.status(400).json({ error: "Email utilisateur requis" });
+  }
+
+  try {
+    const server = await ServerModel.findById(serverId);
+    if (!server) {
+      return res.status(404).json({ error: "Serveur non trouvé" });
+    }
+
+    // Vérifier que l'utilisateur est membre
+    const isMember = server.owner === userEmail || server.members.some(m => m.email === userEmail);
+    if (!isMember) {
+      return res.status(403).json({ error: "Accès refusé" });
+    }
+
+    // Récupérer les salons du serveur
+    const channels = await Channel.find({ serverId }).sort({ position: 1, createdAt: 1 });
+
+    res.json({
+      server,
+      channels
+    });
+  } catch (error) {
+    console.error("Erreur lors de la récupération du serveur:", error);
+    res.status(500).json({ error: "Erreur lors de la récupération du serveur" });
+  }
+});
+
+// Route : récupérer les salons d'un serveur (avec filtrage des canaux privés basé sur le serveur)
+app.get("/servers/:serverId/channels", async (req, res) => {
+  const { serverId } = req.params;
+  const { userEmail } = req.query;
+  
+  if (!userEmail) return res.status(400).json({ error: "Email utilisateur requis" });
+  
+  try {
+    const server = await ServerModel.findById(serverId);
+    if (!server) return res.status(404).json({ error: "Serveur non trouvé" });
+    
+    const isMember = server.owner === userEmail || server.members.some(m => m.email === userEmail);
+    if (!isMember) return res.status(403).json({ error: "Accès refusé" });
+    
+    // Déterminer le rôle de l'utilisateur dans le serveur
+    let userRole = "Utilisateur";
+    if (server.owner === userEmail) {
+      userRole = "Admin";
+    } else {
+      const member = server.members.find(m => m.email === userEmail);
+      if (member) {
+        userRole = member.role;
+      }
+    }
+    
+    // Récupérer tous les canaux du serveur
+    const allChannels = await Channel.find({ serverId }).sort({ position: 1 });
+    
+    // Filtrer les canaux privés selon le rôle dans le serveur
+    const accessibleChannels = allChannels.filter(channel => {
+      if (!channel.isPrivate) {
+        return true; // Canal public, accessible à tous les membres du serveur
+      }
+      
+      // Canal privé, vérifier si le rôle de l'utilisateur dans le serveur est autorisé
+      return channel.allowedRoles.includes(userRole);
+    });
+    
+    res.json(accessibleChannels);
+  } catch (error) {
+    console.error("Erreur lors de la récupération des salons:", error);
+    res.status(500).json({ error: "Erreur lors de la récupération des salons" });
+  }
+});
+
+// Créer un salon dans un serveur
+app.post("/servers/:serverId/channels", async (req, res) => {
+  const { serverId } = req.params;
+  const { name, description, type = "text", userEmail, isPrivate = false, allowedRoles = [] } = req.body;
+
+  if (!name || !userEmail) {
+    return res.status(400).json({ error: "Nom et utilisateur requis" });
+  }
+
+  try {
+    const server = await ServerModel.findById(serverId);
+    if (!server) {
+      return res.status(404).json({ error: "Serveur non trouvé" });
+    }
+
+    // Vérifier les permissions basées sur le serveur (propriétaire ou admin/modo)
+    const isOwner = server.owner === userEmail;
+    const member = server.members.find(m => m.email === userEmail);
+    const canCreate = isOwner || (member && (member.role === "Admin" || member.role === "Modérateur"));
+
+    if (!canCreate) {
+      return res.status(403).json({ error: "Permission refusée - Seuls les admins et modérateurs peuvent créer des canaux" });
+    }
+
+    // Vérifier les permissions pour créer un canal privé (basées sur le serveur)
+    if (isPrivate && !isOwner && member?.role !== "Admin") {
+      return res.status(403).json({ error: "Seuls les admins du serveur peuvent créer des canaux privés" });
+    }
+
+    // Vérifier que le nom n'existe pas déjà dans ce serveur
+    const existingChannel = await Channel.findOne({ serverId, name });
+    if (existingChannel) {
+      return res.status(409).json({ error: "Un salon avec ce nom existe déjà" });
+    }
+
+    // Trouver la position la plus élevée
+    const lastChannel = await Channel.findOne({ serverId }).sort({ position: -1 });
+    const position = lastChannel ? lastChannel.position + 1 : 0;
+
+    const channel = await Channel.create({
+      name,
+      description: description || "",
+      serverId,
+      type,
+      position,
+      isPrivate,
+      allowedRoles: isPrivate ? allowedRoles : []
+    });
+
+    res.status(201).json(channel);
+  } catch (error) {
+    console.error("Erreur lors de la création du salon:", error);
+    res.status(500).json({ error: "Erreur lors de la création du salon" });
+  }
+});
 
 app.post("/auth/login", async (req, res) => {
   const { email, password } = req.body;
@@ -730,6 +915,191 @@ app.get("/channels/:channelName/online-members", async (req, res) => {
   });
 });
 
+// Route : créer un rôle dans un serveur
+app.post("/servers/:serverId/roles", async (req, res) => {
+  const { serverId } = req.params;
+  const { userEmail, roleName, permissions } = req.body;
+  
+  if (!userEmail || !roleName || !permissions) return res.status(400).json({ error: "Champs requis" });
+  
+  try {
+    const server = await ServerModel.findById(serverId);
+    if (!server) return res.status(404).json({ error: "Serveur non trouvé" });
+    
+    // Seul le propriétaire peut créer des rôles
+    if (server.owner !== userEmail) return res.status(403).json({ error: "Seul le propriétaire peut créer un rôle" });
+    
+    // Vérifier si le rôle existe déjà
+    if (server.roles && server.roles[roleName]) return res.status(409).json({ error: "Ce rôle existe déjà" });
+    
+    // Initialiser les rôles si nécessaire
+    if (!server.roles) server.roles = {};
+    
+    server.roles[roleName] = permissions;
+    await server.save();
+    
+    res.json(server.roles);
+  } catch (error) {
+    console.error("Erreur lors de la création du rôle:", error);
+    res.status(500).json({ error: "Erreur lors de la création du rôle" });
+  }
+});
+
+// Route : modifier un rôle dans un serveur
+app.put("/servers/:serverId/roles/:roleName", async (req, res) => {
+  const { serverId, roleName } = req.params;
+  const { userEmail, permissions } = req.body;
+  
+  if (!userEmail || !permissions) return res.status(400).json({ error: "Champs requis" });
+  
+  try {
+    const server = await ServerModel.findById(serverId);
+    if (!server) return res.status(404).json({ error: "Serveur non trouvé" });
+    
+    // Seul le propriétaire peut modifier des rôles
+    if (server.owner !== userEmail) return res.status(403).json({ error: "Seul le propriétaire peut modifier un rôle" });
+    
+    if (!server.roles || !server.roles[roleName]) return res.status(404).json({ error: "Rôle non trouvé" });
+    
+    server.roles[roleName] = permissions;
+    await server.save();
+    
+    res.json(server.roles);
+  } catch (error) {
+    console.error("Erreur lors de la modification du rôle:", error);
+    res.status(500).json({ error: "Erreur lors de la modification du rôle" });
+  }
+});
+
+// Route : supprimer un rôle dans un serveur
+app.delete("/servers/:serverId/roles/:roleName", async (req, res) => {
+  const { serverId, roleName } = req.params;
+  const { userEmail } = req.query;
+  
+  if (!userEmail) return res.status(400).json({ error: "Email requis" });
+  
+  try {
+    const server = await ServerModel.findById(serverId);
+    if (!server) return res.status(404).json({ error: "Serveur non trouvé" });
+    
+    // Seul le propriétaire peut supprimer des rôles
+    if (server.owner !== userEmail) return res.status(403).json({ error: "Seul le propriétaire peut supprimer un rôle" });
+    
+    if (!server.roles || !server.roles[roleName]) return res.status(404).json({ error: "Rôle non trouvé" });
+    
+    // Ne pas supprimer les rôles de base
+    if (["Admin", "Modérateur", "Utilisateur"].includes(roleName)) return res.status(403).json({ error: "Impossible de supprimer un rôle de base" });
+    
+    delete server.roles[roleName];
+    
+    // Mettre à jour les membres qui avaient ce rôle
+    server.members = server.members.map(m => m.role === roleName ? { ...m, role: "Utilisateur" } : m);
+    await server.save();
+    
+    res.json(server.roles);
+  } catch (error) {
+    console.error("Erreur lors de la suppression du rôle:", error);
+    res.status(500).json({ error: "Erreur lors de la suppression du rôle" });
+  }
+});
+
+// Route : changer le rôle d'un membre dans un serveur
+app.put("/servers/:serverId/members/:memberEmail", async (req, res) => {
+  const { serverId, memberEmail } = req.params;
+  const { userEmail, role } = req.body;
+  
+  if (!userEmail || !role) return res.status(400).json({ error: "Champs requis" });
+  
+  try {
+    const server = await ServerModel.findById(serverId);
+    if (!server) return res.status(404).json({ error: "Serveur non trouvé" });
+    
+    // Seul le propriétaire peut changer les rôles
+    if (server.owner !== userEmail) return res.status(403).json({ error: "Seul le propriétaire peut changer le rôle d'un membre" });
+    
+    // Vérifier si le rôle existe
+    if (server.roles && !server.roles[role]) return res.status(404).json({ error: "Rôle non trouvé" });
+    
+    const member = server.members.find(m => m.email === memberEmail);
+    if (!member) return res.status(404).json({ error: "Membre non trouvé" });
+    
+    member.role = role;
+    await server.save();
+    
+    res.json(server.members);
+  } catch (error) {
+    console.error("Erreur lors du changement de rôle:", error);
+    res.status(500).json({ error: "Erreur lors du changement de rôle" });
+  }
+});
+
+// Route : retirer un membre du serveur
+app.delete("/servers/:serverId/members/:memberEmail", async (req, res) => {
+  const { serverId, memberEmail } = req.params;
+  const { userEmail } = req.query;
+  
+  if (!userEmail) return res.status(400).json({ error: "Email requis" });
+  
+  try {
+    const server = await ServerModel.findById(serverId);
+    if (!server) return res.status(404).json({ error: "Serveur non trouvé" });
+    
+    // Seul le propriétaire peut retirer des membres
+    if (server.owner !== userEmail) return res.status(403).json({ error: "Seul le propriétaire peut retirer un membre" });
+    
+    // Ne pas pouvoir se retirer soi-même
+    if (memberEmail === userEmail) return res.status(403).json({ error: "Vous ne pouvez pas vous retirer vous-même" });
+    
+    server.members = server.members.filter(m => m.email !== memberEmail);
+    await server.save();
+    
+    res.json({ message: "Membre retiré avec succès" });
+  } catch (error) {
+    console.error("Erreur lors du retrait du membre:", error);
+    res.status(500).json({ error: "Erreur lors du retrait du membre" });
+  }
+});
+
+// Route : inviter un utilisateur dans un serveur
+app.post("/servers/:serverId/invite", async (req, res) => {
+  const { serverId } = req.params;
+  let { userEmail, inviteEmail, inviteName, role } = req.body;
+  
+  if (!userEmail || (!inviteEmail && !inviteName)) return res.status(400).json({ error: "Champs requis (inviteEmail ou inviteName)" });
+  
+  try {
+    const server = await ServerModel.findById(serverId);
+    if (!server) return res.status(404).json({ error: "Serveur non trouvé" });
+    
+    // Seul le propriétaire ou un admin peut inviter
+    if (server.owner !== userEmail) {
+      const member = server.members.find(m => m.email === userEmail);
+      if (!member || member.role !== "Admin") return res.status(403).json({ error: "Accès refusé" });
+    }
+    
+    // Si inviteName est fourni, chercher l'utilisateur
+    if (!inviteEmail && inviteName) {
+      const user = await User.findOne({ name: inviteName });
+      if (!user) return res.status(404).json({ error: "Aucun utilisateur avec ce pseudo" });
+      inviteEmail = user.email;
+    }
+    
+    // Vérifier si l'utilisateur est déjà membre
+    if (server.owner === inviteEmail || server.members.find(m => m.email === inviteEmail)) {
+      return res.status(409).json({ error: "Utilisateur déjà membre" });
+    }
+    
+    const roleToAssign = role && server.roles && server.roles[role] ? role : "Utilisateur";
+    server.members.push({ email: inviteEmail, role: roleToAssign });
+    await server.save();
+    
+    res.json(server.members);
+  } catch (error) {
+    console.error("Erreur lors de l'invitation:", error);
+    res.status(500).json({ error: "Erreur lors de l'invitation" });
+  }
+});
+
 // Route : créer un rôle
 app.post("/channels/:channelName/roles", async (req, res) => {
   const { channelName } = req.params;
@@ -864,24 +1234,321 @@ app.post("/channels", async (req, res) => {
   res.status(201).json(channel);
 });
 
-// Route : liste des salons (visibles uniquement par les membres)
-app.get("/channels", async (req, res) => {
+// Route : récupérer les membres en ligne d'un serveur
+app.get("/servers/:serverId/online-members", async (req, res) => {
+  const { serverId } = req.params;
   const { userEmail } = req.query;
+  
   if (!userEmail) return res.status(400).json({ error: "Email utilisateur requis" });
-  const channels = await Channel.find({
-    $or: [
-      { owner: userEmail },
-      { "members.email": userEmail }
-    ]
-  }).sort({ createdAt: 1 });
-  res.json(channels.map(c => ({
-    _id: c._id,
-    name: c.name,
-    description: c.description,
-    owner: c.owner,
-    createdAt: c.createdAt,
-    icon: c.icon // <-- AJOUTER CECI
-  })));
+  
+  try {
+    const server = await ServerModel.findById(serverId);
+    if (!server) return res.status(404).json({ error: "Serveur non trouvé" });
+    
+    const isMember = server.owner === userEmail || server.members.some(m => m.email === userEmail);
+    if (!isMember) return res.status(403).json({ error: "Accès refusé" });
+    
+    // Récupérer tous les membres du serveur avec leur statut (éviter les doublons)
+    const allMembers = [];
+    
+    // Ajouter le propriétaire
+    allMembers.push({ email: server.owner, role: "Admin" });
+    
+    // Ajouter les autres membres (en évitant le propriétaire s'il est déjà dans la liste)
+    server.members.forEach(member => {
+      if (member.email !== server.owner) {
+        allMembers.push(member);
+      }
+    });
+    
+    // Récupérer les informations utilisateur pour chaque membre
+    const membersWithDetails = await Promise.all(
+      allMembers.map(async (member) => {
+        const user = await User.findOne({ email: member.email });
+        return {
+          email: member.email,
+          name: user?.name || member.email.split('@')[0],
+          avatar: user?.avatar || "/avatars/avatar1.png",
+          role: member.role,
+          status: user?.status || "offline"
+        };
+      })
+    );
+    
+    const onlineMembers = membersWithDetails.filter(m => m.status === "online");
+    const totalOnline = onlineMembers.length;
+    const totalMembers = membersWithDetails.length;
+    
+    res.json({
+      onlineMembers: membersWithDetails, // Tous les membres avec leur statut
+      totalOnline,
+      totalMembers
+    });
+  } catch (error) {
+    console.error("Erreur lors de la récupération des membres:", error);
+    res.status(500).json({ error: "Erreur lors de la récupération des membres" });
+  }
+});
+
+// Route : récupérer les permissions d'un utilisateur dans un serveur
+app.get("/servers/:serverId/permissions", async (req, res) => {
+  const { serverId } = req.params;
+  const { userEmail } = req.query;
+  
+  if (!userEmail) return res.status(400).json({ error: "Email utilisateur requis" });
+  
+  try {
+    const server = await ServerModel.findById(serverId);
+    if (!server) return res.status(404).json({ error: "Serveur non trouvé" });
+    
+    const isMember = server.owner === userEmail || server.members.some(m => m.email === userEmail);
+    if (!isMember) return res.status(403).json({ error: "Accès refusé" });
+    
+    // Déterminer le rôle de l'utilisateur
+    let userRole = "Utilisateur";
+    if (server.owner === userEmail) {
+      userRole = "Admin";
+    } else {
+      const member = server.members.find(m => m.email === userEmail);
+      if (member) {
+        userRole = member.role;
+      }
+    }
+    
+    // Définir les permissions selon le rôle
+    const permissions = {
+      canSendMessages: true,
+      canDeleteMessages: userRole === "Admin" || userRole === "Modérateur",
+      canEditMessages: true, // L'utilisateur peut toujours éditer ses propres messages
+      canManageChannels: userRole === "Admin",
+      canManageMembers: userRole === "Admin" || userRole === "Modérateur",
+      canViewMembers: true,
+      canCreatePrivateChannels: userRole === "Admin" || userRole === "Modérateur",
+      canManageRoles: userRole === "Admin",
+      canInviteUsers: userRole === "Admin" || userRole === "Modérateur"
+    };
+    
+    res.json({
+      permissions,
+      userRole,
+      serverName: server.name,
+      isServerAdmin: userRole === "Admin" || userRole === "Modérateur",
+      isOwner: server.owner === userEmail
+    });
+  } catch (error) {
+    console.error("Erreur lors de la récupération des permissions:", error);
+    res.status(500).json({ error: "Erreur lors de la récupération des permissions" });
+  }
+});
+
+// Route : récupérer les permissions d'un utilisateur dans un salon (basées sur le serveur)
+app.get("/channels/:channelId/permissions", async (req, res) => {
+  const { channelId } = req.params;
+  const { userEmail } = req.query;
+  
+  if (!userEmail) return res.status(400).json({ error: "Email utilisateur requis" });
+  
+  try {
+    const channel = await Channel.findById(channelId);
+    if (!channel) return res.status(404).json({ error: "Salon non trouvé" });
+    
+    // Vérifier que l'utilisateur a accès au serveur
+    const server = await ServerModel.findById(channel.serverId);
+    if (!server) return res.status(404).json({ error: "Serveur non trouvé" });
+    
+    const isMember = server.owner === userEmail || server.members.some(m => m.email === userEmail);
+    if (!isMember) return res.status(403).json({ error: "Accès refusé" });
+    
+    // Vérifier l'accès au canal privé
+    if (channel.isPrivate) {
+      const userRole = server.owner === userEmail ? "Admin" : 
+        server.members.find(m => m.email === userEmail)?.role || "Utilisateur";
+      
+      if (!channel.allowedRoles.includes(userRole)) {
+        return res.status(403).json({ error: "Accès refusé à ce canal privé" });
+      }
+    }
+    
+    // Déterminer le rôle de l'utilisateur dans le serveur
+    let userRole = "Utilisateur";
+    if (server.owner === userEmail) {
+      userRole = "Admin";
+    } else {
+      const member = server.members.find(m => m.email === userEmail);
+      if (member) {
+        userRole = member.role;
+      }
+    }
+    
+    // Les permissions sont basées sur le serveur, pas sur le canal
+    const permissions = {
+      canSendMessages: true,
+      canDeleteMessages: userRole === "Admin" || userRole === "Modérateur",
+      canEditMessages: true, // L'utilisateur peut toujours éditer ses propres messages
+      canManageChannels: userRole === "Admin",
+      canManageMembers: userRole === "Admin" || userRole === "Modérateur",
+      canViewMembers: true
+    };
+    
+    res.json({
+      permissions,
+      userRole,
+      channelName: channel.name,
+      isChannelAdmin: userRole === "Admin" || userRole === "Modérateur",
+      isOwner: server.owner === userEmail,
+      isPrivate: channel.isPrivate,
+      allowedRoles: channel.allowedRoles
+    });
+  } catch (error) {
+    console.error("Erreur lors de la récupération des permissions:", error);
+    res.status(500).json({ error: "Erreur lors de la récupération des permissions" });
+  }
+});
+
+// Route : récupérer les membres d'un serveur
+app.get("/servers/:serverId/members", async (req, res) => {
+  const { serverId } = req.params;
+  const { userEmail } = req.query;
+  
+  if (!userEmail) return res.status(400).json({ error: "Email utilisateur requis" });
+  
+  try {
+    const server = await ServerModel.findById(serverId);
+    if (!server) return res.status(404).json({ error: "Serveur non trouvé" });
+    
+    const isMember = server.owner === userEmail || server.members.some(m => m.email === userEmail);
+    if (!isMember) return res.status(403).json({ error: "Accès refusé" });
+    
+    // Récupérer tous les membres du serveur (éviter les doublons)
+    const allMembers = [];
+    
+    // Ajouter le propriétaire
+    allMembers.push({ email: server.owner, role: "Admin" });
+    
+    // Ajouter les autres membres (en évitant le propriétaire s'il est déjà dans la liste)
+    server.members.forEach(member => {
+      if (member.email !== server.owner) {
+        allMembers.push(member);
+      }
+    });
+    
+    // Récupérer les informations utilisateur pour chaque membre
+    const membersWithDetails = await Promise.all(
+      allMembers.map(async (member) => {
+        const user = await User.findOne({ email: member.email });
+        return {
+          email: member.email,
+          name: user?.name || member.email.split('@')[0],
+          avatar: user?.avatar || "/avatars/avatar1.png",
+          role: member.role,
+          status: user?.status || "offline"
+        };
+      })
+    );
+    
+    res.json({
+      members: membersWithDetails,
+      totalMembers: membersWithDetails.length
+    });
+  } catch (error) {
+    console.error("Erreur lors de la récupération des membres:", error);
+    res.status(500).json({ error: "Erreur lors de la récupération des membres" });
+  }
+});
+
+// Route : récupérer les membres d'un salon
+app.get("/channels/:channelId/members", async (req, res) => {
+  const { channelId } = req.params;
+  const { userEmail } = req.query;
+  
+  if (!userEmail) return res.status(400).json({ error: "Email utilisateur requis" });
+  
+  try {
+    const channel = await Channel.findById(channelId);
+    if (!channel) return res.status(404).json({ error: "Salon non trouvé" });
+    
+    // Vérifier que l'utilisateur a accès au serveur
+    const server = await ServerModel.findById(channel.serverId);
+    if (!server) return res.status(404).json({ error: "Serveur non trouvé" });
+    
+    const isMember = server.owner === userEmail || server.members.some(m => m.email === userEmail);
+    if (!isMember) return res.status(403).json({ error: "Accès refusé" });
+    
+    // Récupérer tous les membres du serveur (éviter les doublons)
+    const allMembers = [];
+    
+    // Ajouter le propriétaire
+    allMembers.push({ email: server.owner, role: "Admin" });
+    
+    // Ajouter les autres membres (en évitant le propriétaire s'il est déjà dans la liste)
+    server.members.forEach(member => {
+      if (member.email !== server.owner) {
+        allMembers.push(member);
+      }
+    });
+    
+    // Récupérer les informations utilisateur pour chaque membre
+    const membersWithDetails = await Promise.all(
+      allMembers.map(async (member) => {
+        const user = await User.findOne({ email: member.email });
+        return {
+          email: member.email,
+          name: user?.name || member.email.split('@')[0],
+          avatar: user?.avatar || "/avatars/avatar1.png",
+          role: member.role,
+          status: user?.status || "offline"
+        };
+      })
+    );
+    
+    res.json({
+      members: membersWithDetails,
+      totalMembers: membersWithDetails.length
+    });
+  } catch (error) {
+    console.error("Erreur lors de la récupération des membres:", error);
+    res.status(500).json({ error: "Erreur lors de la récupération des membres" });
+  }
+});
+
+// Route : récupérer les messages d'un salon
+app.get("/channels/:channelId/messages", async (req, res) => {
+  const { channelId } = req.params;
+  const { userEmail, page = 0, limit = 50 } = req.query;
+  
+  if (!userEmail) return res.status(400).json({ error: "Email utilisateur requis" });
+  
+  try {
+    const channel = await Channel.findById(channelId);
+    if (!channel) return res.status(404).json({ error: "Salon non trouvé" });
+    
+    // Vérifier que l'utilisateur a accès au serveur
+    const server = await ServerModel.findById(channel.serverId);
+    if (!server) return res.status(404).json({ error: "Serveur non trouvé" });
+    
+    const isMember = server.owner === userEmail || server.members.some(m => m.email === userEmail);
+    if (!isMember) return res.status(403).json({ error: "Accès refusé" });
+    
+    const skip = parseInt(page) * parseInt(limit);
+    const messages = await Message.find({ channelId })
+      .sort({ timestamp: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .sort({ timestamp: 1 });
+    
+    const totalCount = await Message.countDocuments({ channelId });
+    const hasMore = skip + parseInt(limit) < totalCount;
+    
+    res.json({
+      messages,
+      hasMore,
+      totalCount,
+      currentPage: parseInt(page)
+    });
+  } catch (error) {
+    console.error("Erreur lors de la récupération des messages:", error);
+    res.status(500).json({ error: "Erreur lors de la récupération des messages" });
+  }
 });
 
 // Route : inviter un utilisateur dans un salon (par email ou pseudo)
@@ -912,6 +1579,92 @@ app.post("/channels/:channelName/invite", async (req, res) => {
 });
 
 // Route : générer ou retourner le lien d’invitation d’un channel
+// Route : générer ou retourner le lien d'invitation d'un serveur
+app.get("/servers/:serverId/invite-link", async (req, res) => {
+  const { serverId } = req.params;
+  const { userEmail } = req.query;
+  
+  if (!userEmail) return res.status(400).json({ error: "Email requis" });
+  
+  try {
+    const server = await ServerModel.findById(serverId);
+    if (!server) return res.status(404).json({ error: "Serveur non trouvé" });
+    
+    // Vérifier les permissions
+    if (server.owner !== userEmail) {
+      const member = server.members.find(m => m.email === userEmail);
+      if (!member || member.role !== "Admin") return res.status(403).json({ error: "Accès refusé" });
+    }
+    
+    if (!server.inviteToken) {
+      // Générer un token unique
+      server.inviteToken = Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+      await server.save();
+    }
+    
+    const url = `http://localhost:3000/join/${server.inviteToken}`;
+    res.json({ inviteLink: url });
+  } catch (error) {
+    console.error("Erreur lors de la génération du lien d'invitation:", error);
+    res.status(500).json({ error: "Erreur lors de la génération du lien d'invitation" });
+  }
+});
+
+// Route : supprimer un serveur
+app.delete("/servers/:serverId", async (req, res) => {
+  const { serverId } = req.params;
+  const { userEmail } = req.query;
+  
+  if (!userEmail) return res.status(400).json({ error: "Email requis" });
+  
+  try {
+    const server = await ServerModel.findById(serverId);
+    if (!server) return res.status(404).json({ error: "Serveur non trouvé" });
+    
+    // Seul le propriétaire peut supprimer le serveur
+    if (server.owner !== userEmail) return res.status(403).json({ error: "Seul le propriétaire peut supprimer le serveur" });
+    
+    // Supprimer tous les canaux du serveur
+    await Channel.deleteMany({ serverId });
+    
+    // Supprimer tous les messages du serveur
+    await Message.deleteMany({ serverId });
+    
+    // Supprimer le serveur
+    await ServerModel.findByIdAndDelete(serverId);
+    
+    res.json({ message: "Serveur supprimé avec succès" });
+  } catch (error) {
+    console.error("Erreur lors de la suppression du serveur:", error);
+    res.status(500).json({ error: "Erreur lors de la suppression du serveur" });
+  }
+});
+
+// Route : quitter un serveur
+app.post("/servers/:serverId/leave", async (req, res) => {
+  const { serverId } = req.params;
+  const { userEmail } = req.query;
+  
+  if (!userEmail) return res.status(400).json({ error: "Email requis" });
+  
+  try {
+    const server = await ServerModel.findById(serverId);
+    if (!server) return res.status(404).json({ error: "Serveur non trouvé" });
+    
+    // Le propriétaire ne peut pas quitter son propre serveur
+    if (server.owner === userEmail) return res.status(403).json({ error: "Le propriétaire ne peut pas quitter son propre serveur" });
+    
+    // Retirer l'utilisateur de la liste des membres
+    server.members = server.members.filter(m => m.email !== userEmail);
+    await server.save();
+    
+    res.json({ message: "Vous avez quitté le serveur avec succès" });
+  } catch (error) {
+    console.error("Erreur lors de la sortie du serveur:", error);
+    res.status(500).json({ error: "Erreur lors de la sortie du serveur" });
+  }
+});
+
 app.get("/channels/:channelName/invite-link", async (req, res) => {
   const { channelName } = req.params;
   const channel = await Channel.findOne({ name: channelName });

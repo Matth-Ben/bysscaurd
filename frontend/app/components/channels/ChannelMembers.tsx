@@ -10,7 +10,7 @@ interface Member {
 }
 
 interface ChannelMembersProps {
-  channelName: string;
+  channelId: string;
   isOpen: boolean;
   onClose: () => void;
   session: any;
@@ -80,16 +80,16 @@ const getStatusIcon = (status: string) => {
   }
 };
 
-export default function ChannelMembers({ channelName, isOpen, onClose, session }: ChannelMembersProps) {
+export default function ChannelMembers({ channelId, isOpen, onClose, session }: ChannelMembersProps) {
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (isOpen && channelName && session?.user?.email) {
+    if (isOpen && channelId && session?.user?.email) {
       fetchMembers();
     }
-  }, [isOpen, channelName, session?.user?.email]);
+  }, [isOpen, channelId, session?.user?.email]);
 
   // Écouter les changements de statut en temps réel
   useEffect(() => {
@@ -120,7 +120,7 @@ export default function ChannelMembers({ channelName, isOpen, onClose, session }
     setError("");
     try {
       const response = await fetch(
-        `http://localhost:4000/channels/${encodeURIComponent(channelName)}/members?userEmail=${encodeURIComponent(session?.user?.email || "")}`
+        `http://localhost:4000/channels/${channelId}/members?userEmail=${encodeURIComponent(session?.user?.email || "")}`
       );
       if (response.ok) {
         const data = await response.json();

@@ -11,11 +11,11 @@ interface OnlineMember {
 }
 
 interface OnlineMembersProps {
-  channelName: string;
+  serverId: string;
   session: any;
 }
 
-export default function OnlineMembers({ channelName, session }: OnlineMembersProps) {
+export default function OnlineMembers({ serverId, session }: OnlineMembersProps) {
   const [onlineMembers, setOnlineMembers] = useState<OnlineMember[]>([]);
   const [totalOnline, setTotalOnline] = useState(0);
   const [totalMembers, setTotalMembers] = useState(0);
@@ -58,12 +58,12 @@ export default function OnlineMembers({ channelName, session }: OnlineMembersPro
 
   // Charger les membres connectés
   const fetchOnlineMembers = async () => {
-    if (!channelName || !session?.user?.email) return;
+    if (!serverId || !session?.user?.email) return;
     
     setLoading(true);
     try {
       const response = await fetch(
-        `http://localhost:4000/channels/${encodeURIComponent(channelName)}/online-members?userEmail=${encodeURIComponent(session.user.email)}`
+        `http://localhost:4000/servers/${serverId}/online-members?userEmail=${encodeURIComponent(session.user.email)}`
       );
       if (response.ok) {
         const data = await response.json();
@@ -80,10 +80,10 @@ export default function OnlineMembers({ channelName, session }: OnlineMembersPro
 
   // Écouter les changements de statut en temps réel
   useEffect(() => {
-    if (!channelName) return;
+    if (!serverId) return;
 
     const handleUserJoined = (data: { email: string; status: string; channel: string }) => {
-      if (data.channel === channelName) {
+      if (data.channel === serverId) {
         setOnlineMembers(prev => {
           const existing = prev.find(m => m.email === data.email);
           if (existing) {
@@ -97,7 +97,7 @@ export default function OnlineMembers({ channelName, session }: OnlineMembersPro
     };
 
     const handleUserLeft = (data: { email: string; status: string; channel: string }) => {
-      if (data.channel === channelName) {
+      if (data.channel === serverId) {
         setOnlineMembers(prev => prev.map(m => 
           m.email === data.email ? { ...m, status: data.status } : m
         ));
@@ -122,18 +122,18 @@ export default function OnlineMembers({ channelName, session }: OnlineMembersPro
       unsubscribeLeft();
       unsubscribeStatus();
     };
-  }, [channelName]);
+  }, [serverId]);
 
-  // Charger les membres connectés au montage et quand le channel change
+  // Charger les membres connectés au montage et quand le serveur change
   useEffect(() => {
     fetchOnlineMembers();
-  }, [channelName, session?.user?.email]);
+  }, [serverId, session?.user?.email]);
 
   // Rafraîchir périodiquement (toutes les 30 secondes)
   useEffect(() => {
     const interval = setInterval(fetchOnlineMembers, 30000);
     return () => clearInterval(interval);
-  }, [channelName, session?.user?.email]);
+  }, [serverId, session?.user?.email]);
 
   // Trier les membres par rôle et statut
   const sortedMembers = [...onlineMembers].sort((a, b) => {
