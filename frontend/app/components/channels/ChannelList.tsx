@@ -15,6 +15,7 @@ interface ChannelListProps {
   onSelectChannel: (channel: string) => void;
   onCreateChannel: (name: string) => Promise<void>;
   unreadCounts?: Record<string, number>;
+  unreadMessages?: Record<string, { count: number; lastMessageId: string; lastMessageTime: string }>;
 }
 
 // Fonction utilitaire pour l’URL de l’icône du salon (comme AuthButton)
@@ -34,7 +35,7 @@ const getChannelIconUrl = (icon: string | undefined) => {
   return iconUrl;
 };
 
-export default function ChannelList({ channels, selectedChannel, onSelectChannel, onCreateChannel, unreadCounts = {} }: ChannelListProps) {
+export default function ChannelList({ channels, selectedChannel, onSelectChannel, onCreateChannel, unreadCounts = {}, unreadMessages = {} }: ChannelListProps) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [creating, setCreating] = useState(false);
 
@@ -85,10 +86,10 @@ export default function ChannelList({ channels, selectedChannel, onSelectChannel
                     }`}
                   >
                     <img src={iconUrl} alt="avatar" className="w-8 h-8 rounded-full" />
-                    {/* Badge de notification */}
-                    {unreadCounts[channel.name] > 0 && (
+                    {/* Badge de notification pour le salon */}
+                    {unreadMessages[channel._id]?.count > 0 && (
                       <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 font-medium">
-                        {unreadCounts[channel.name] > 99 ? '99+' : unreadCounts[channel.name]}
+                        {unreadMessages[channel._id].count > 99 ? '99+' : unreadMessages[channel._id].count}
                       </div>
                     )}
                   </button>

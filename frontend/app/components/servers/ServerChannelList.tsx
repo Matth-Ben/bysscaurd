@@ -28,6 +28,7 @@ interface ServerChannelListProps {
   onCreateChannel: (name: string, description: string, type: 'text' | 'voice', isPrivate?: boolean, allowedRoles?: string[]) => Promise<void>;
   currentUserEmail: string;
   userPermissions?: any;
+  unreadMessages?: Record<string, { count: number; lastMessageId: string; lastMessageTime: string }>;
 }
 
 export default function ServerChannelList({ 
@@ -37,7 +38,8 @@ export default function ServerChannelList({
   onSelectChannel, 
   onCreateChannel, 
   currentUserEmail,
-  userPermissions
+  userPermissions,
+  unreadMessages = {}
 }: ServerChannelListProps) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -139,6 +141,13 @@ export default function ServerChannelList({
               
               {/* Nom du salon */}
               <span className="flex-1 truncate">#{channel.name}</span>
+              
+              {/* Badge de messages non lus */}
+              {unreadMessages[channel._id]?.count > 0 && (
+                <div className="bg-red-500 text-white text-xs rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 font-medium flex-shrink-0">
+                  {unreadMessages[channel._id].count > 99 ? '99+' : unreadMessages[channel._id].count}
+                </div>
+              )}
               
               {/* Indicateur privé */}
               {channel.isPrivate && (

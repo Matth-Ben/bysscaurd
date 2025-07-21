@@ -85,15 +85,10 @@ export default function MessageItem({
 
   const handleSaveEdit = () => {
     if (editContent.trim() && editContent !== message.content) {
-      console.log("MessageItem: Envoi de la modification", {
-        messageId: message._id,
-        content: editContent.trim(),
-        channel: message.channel
-      });
       socketService.editMessage({
         messageId: message._id,
         content: editContent.trim(),
-        channel: message.channel
+        channelId: message.channel
       });
     }
     setIsEditing(false);
@@ -108,7 +103,7 @@ export default function MessageItem({
     if (window.confirm("Êtes-vous sûr de vouloir supprimer ce message ?")) {
       socketService.deleteMessage({
         messageId: message._id,
-        channel: message.channel
+        channelId: message.channel
       });
     }
     setShowOptions(false);
@@ -122,7 +117,7 @@ export default function MessageItem({
     socketService.addReaction({
       messageId: message._id,
       emoji,
-      channel: message.channel,
+      channelId: message.channel,
       action: hasReacted ? 'remove' : 'add'
     });
     setShowReactions(false);

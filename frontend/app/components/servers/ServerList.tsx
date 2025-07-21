@@ -17,6 +17,8 @@ interface ServerListProps {
   onSelectServer: (serverId: string) => void;
   onCreateServer: (name: string, description: string) => Promise<void>;
   currentUserEmail: string;
+  unreadCounts: { [serverId: string]: number };
+  onResetUnreadCount: (serverId: string) => void;
 }
 
 // Fonction utilitaire pour l'URL de l'icône du serveur
@@ -39,10 +41,14 @@ export default function ServerList({
   selectedServer, 
   onSelectServer, 
   onCreateServer, 
-  currentUserEmail 
+  currentUserEmail, 
+  unreadCounts,
+  onResetUnreadCount
 }: ServerListProps) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [creating, setCreating] = useState(false);
+  
+
 
   const handleCreateServer = async (name: string, description: string) => {
     setCreating(true);
@@ -54,6 +60,13 @@ export default function ServerList({
     } finally {
       setCreating(false);
     }
+  };
+
+  const handleServerSelect = (serverId: string) => {
+    // Réinitialiser le compteur de messages non lus pour ce serveur
+    onResetUnreadCount(serverId);
+    // Sélectionner le serveur
+    onSelectServer(serverId);
   };
 
   return (
@@ -92,27 +105,34 @@ export default function ServerList({
 
       {/* Liste des serveurs */}
       {servers.map((server) => (
-        <div key={server._id} className="relative group">
-          <button
-            onClick={() => onSelectServer(server._id)}
-            className={`w-12 h-12 flex items-center justify-center rounded-2xl transition-all border-2 relative ${
-              selectedServer === server._id
-                ? "bg-[#5865f2] border-[#5865f2]"
-                : "bg-[#36393f] border-transparent hover:bg-[#40444b]"
-            }`}
-            title={server.name}
-          >
-            <img 
-              src={getServerIconUrl(server.icon)} 
-              alt={server.name} 
-              className="w-8 h-8 rounded-full object-cover"
-            />
-            
-            {/* Indicateur si propriétaire */}
-            {server.owner === currentUserEmail && (
-              <div className="absolute -top-1 -right-1 w-3 h-3 bg-[#5865f2] rounded-full border-2 border-[#202225]"></div>
-            )}
-          </button>
+          <div key={server._id} className="relative group">
+            <button
+              onClick={() => handleServerSelect(server._id)}
+              className={`w-12 h-12 flex items-center justify-center rounded-2xl transition-all border-2 relative ${
+                selectedServer === server._id
+                  ? "bg-[#5865f2] border-[#5865f2]"
+                  : "bg-[#36393f] border-transparent hover:bg-[#40444b]"
+              }`}
+              title={server.name}
+            >
+              <img 
+                src={getServerIconUrl(server.icon)} 
+                alt={server.name} 
+                className="w-8 h-8 rounded-full object-cover"
+              />
+              
+              {/* Indicateur si propriétaire */}
+              {server.owner === currentUserEmail && (
+                <div className="absolute -top-1 -right-1 w-3 h-3 bg-[#5865f2] rounded-full border-2 border-[#202225]"></div>
+              )}
+
+              {/* Indicateur de messages non lus */}
+              {unreadCounts[server._id] > 0 && (
+                <div className="absolute -bottom-1 -right-1 w-4 h-4 flex items-center justify-center rounded-full bg-[#f23f42] text-white text-xs font-bold z-20">
+                  {unreadCounts[server._id]}
+                </div>
+              )}
+            </button>
           
           {/* Indicateur de sélection */}
           {selectedServer === server._id && (

@@ -64,7 +64,6 @@ export default function MentionAutocomplete({
         e.stopPropagation();
         setSelectedIndex(prev => {
           const newIndex = prev < filteredUsers.length - 1 ? prev + 1 : 0;
-          console.log('ArrowDown: prev =', prev, 'newIndex =', newIndex, 'filteredUsers.length =', filteredUsers.length);
           return newIndex;
         });
         break;
@@ -73,7 +72,6 @@ export default function MentionAutocomplete({
         e.stopPropagation();
         setSelectedIndex(prev => {
           const newIndex = prev > 0 ? prev - 1 : filteredUsers.length - 1;
-          console.log('ArrowUp: prev =', prev, 'newIndex =', newIndex, 'filteredUsers.length =', filteredUsers.length);
           return newIndex;
         });
         break;
@@ -122,9 +120,7 @@ export default function MentionAutocomplete({
 
   // Debug: afficher l'état actuel
   useEffect(() => {
-    if (isVisible && filteredUsers.length > 0) {
-      console.log('MentionAutocomplete - selectedIndex:', selectedIndex, 'filteredUsers.length:', filteredUsers.length);
-    }
+    // État actuel pour debug (silencieux)
   }, [selectedIndex, filteredUsers.length, isVisible]);
 
   // Ne pas afficher si pas de résultats ou pas de requête

@@ -151,6 +151,17 @@ const messageSchema = new mongoose.Schema({
 });
 const Message = mongoose.models.Message || mongoose.model("Message", messageSchema);
 
+// Modèle pour gérer les messages lus par utilisateur
+const messageReadSchema = new mongoose.Schema({
+  userId: { type: String, required: true }, // email de l'utilisateur
+  channelId: { type: mongoose.Schema.Types.ObjectId, ref: 'Channel', required: true },
+  serverId: { type: mongoose.Schema.Types.ObjectId, ref: 'Server', required: true },
+  lastReadMessageId: { type: mongoose.Schema.Types.ObjectId, ref: 'Message' },
+  lastReadTimestamp: { type: Date, default: Date.now },
+  unreadCount: { type: Number, default: 0 }
+});
+const MessageRead = mongoose.models.MessageRead || mongoose.model("MessageRead", messageReadSchema);
+
 // Nouvelle fonction utilitaire pour vérifier les permissions dynamiques
 const checkPermission = async (userEmail, channelName, permission) => {
   const channel = await Channel.findOne({ name: channelName });
@@ -179,8 +190,52 @@ const getUserChannelRole = async (userEmail, channelName) => {
   return member ? member.role : null;
 };
 
+// Fonction pour marquer un message comme lu
+const markMessageAsRead = async (userId, channelId, serverId, messageId) => {
+  try {
+    await MessageRead.findOneAndUpdate(
+      { userId, channelId, serverId },
+      { 
+        lastReadMessageId: messageId,
+        lastReadTimestamp: new Date(),
+        unreadCount: 0
+      },
+      { upsert: true, new: true }
+    );
+  } catch (error) {
+    console.error("Erreur lors du marquage du message comme lu:", error);
+  }
+};
+
+// Fonction pour incrémenter le compteur de messages non lus
+const incrementUnreadCount = async (userId, channelId, serverId) => {
+  try {
+    await MessageRead.findOneAndUpdate(
+      { userId, channelId, serverId },
+      { $inc: { unreadCount: 1 } },
+      { upsert: true, new: true }
+    );
+  } catch (error) {
+    console.error("Erreur lors de l'incrémentation du compteur:", error);
+  }
+};
+
+// Fonction pour obtenir les compteurs de messages non lus
+const getUnreadCounts = async (userId) => {
+  try {
+    const unreadData = await MessageRead.find({ userId, unreadCount: { $gt: 0 } });
+    const counts = {};
+    unreadData.forEach(item => {
+      counts[item.serverId.toString()] = (counts[item.serverId.toString()] || 0) + item.unreadCount;
+    });
+    return counts;
+  } catch (error) {
+    console.error("Erreur lors de la récupération des compteurs:", error);
+    return {};
+  }
+};
+
 io.on("connection", (socket) => {
-  console.log("User connected: " + socket.id);
 
   // Stocker l'email de l'utilisateur connecté
   let userEmail = null;
@@ -192,6 +247,23 @@ io.on("connection", (socket) => {
       // Mettre à jour le statut en ligne
       await User.findOneAndUpdate({ email }, { status: "online" });
       
+      // Faire rejoindre automatiquement tous les serveurs auxquels l'utilisateur a accès
+      const userServers = await ServerModel.find({
+        $or: [
+          { owner: email },
+          { "members.email": email }
+        ]
+      });
+      
+      console.log("🔔 Authentification: Utilisateur", email, "a accès à", userServers.length, "serveurs");
+      
+      // Rejoindre les rooms des serveurs pour recevoir les notifications
+      for (const server of userServers) {
+        const serverRoomName = `server_${server._id}`;
+        socket.join(serverRoomName);
+        console.log("🔔 Authentification: Utilisateur", email, "rejoint la room du serveur", serverRoomName);
+      }
+      
       // Faire rejoindre automatiquement tous les salons auxquels l'utilisateur a accès
       const userChannels = await Channel.find({
         $or: [
@@ -200,11 +272,11 @@ io.on("connection", (socket) => {
         ]
       });
       
-      console.log(`User ${email} has access to channels:`, userChannels.map(c => c.name));
+      // User has access to channels
       
       for (const channel of userChannels) {
         socket.join(channel.name);
-        console.log(`User ${email} auto-joined channel: ${channel.name}`);
+                  // User auto-joined channel
         
         // Notifier les autres membres du salon que l'utilisateur est en ligne
         socket.to(channel.name).emit("user_joined_channel", { 
@@ -214,6 +286,67 @@ io.on("connection", (socket) => {
         });
       }
       
+      // Initialiser les données utilisateur pour les notifications
+      try {
+        // Récupérer les compteurs de messages non lus
+        const unreadCounts = await getUnreadCounts(email);
+        
+        // Récupérer tous les serveurs avec leurs salons
+        const serversWithChannels = await Promise.all(userServers.map(async (server) => {
+          const channels = await Channel.find({
+            serverId: server._id,
+            $or: [
+              { owner: email },
+              { "members.email": email }
+            ]
+          });
+          
+          return {
+            _id: server._id,
+            name: server.name,
+            description: server.description,
+            icon: server.icon,
+            owner: server.owner,
+            createdAt: server.createdAt,
+            channels: channels.map(channel => ({
+              _id: channel._id,
+              name: channel.name,
+              description: channel.description,
+              type: channel.type,
+              position: channel.position,
+              isPrivate: channel.isPrivate,
+              createdAt: channel.createdAt
+            }))
+          };
+        }));
+        
+        // Envoyer les données initiales à l'utilisateur
+        socket.emit("user_initialized", {
+          userEmail: email,
+          servers: serversWithChannels,
+          channels: userChannels.map(channel => ({
+            _id: channel._id,
+            name: channel.name,
+            description: channel.description,
+            type: channel.type,
+            position: channel.position,
+            isPrivate: channel.isPrivate,
+            createdAt: channel.createdAt,
+            serverId: channel.serverId
+          })),
+          unreadCounts: unreadCounts
+        });
+        
+        console.log("🔔 Authentification: Données utilisateur initialisées pour", email, {
+          serversCount: serversWithChannels.length,
+          channelsCount: userChannels.length,
+          unreadCounts: unreadCounts
+        });
+        
+      } catch (error) {
+        console.error("🔔 Authentification: Erreur lors de l'initialisation des données utilisateur:", error);
+      }
+      
       // Notifier tous les utilisateurs du changement de statut
       socket.broadcast.emit("user_status_changed", { email, status: "online" });
     }
@@ -221,13 +354,18 @@ io.on("connection", (socket) => {
 
   // Rejoindre un salon
   socket.on("join_channel", async (data) => {
+    // Demande de jointure de salon reçue
     const { channelId, serverId } = typeof data === 'string' ? { channelId: data } : data;
-    if (!channelId || !serverId) return;
+    if (!channelId || !serverId) {
+              // Données manquantes pour rejoindre le salon
+      return;
+    }
     
     const roomName = `channel_${channelId}`;
-    console.log("User joining channel:", channelId, "in server:", serverId, "Socket ID:", socket.id);
+    // User joining channel
     socket.join(roomName);
-    console.log("User joined channel:", roomName, "Total clients in room:", io.sockets.adapter.rooms.get(roomName)?.size || 0);
+    const roomSize = io.sockets.adapter.rooms.get(roomName)?.size || 0;
+    // User joined channel
     
     // Envoyer l'historique du salon (50 plus récents)
     const history = await Message.find({ channelId })
@@ -241,6 +379,7 @@ io.on("connection", (socket) => {
       const user = await User.findOne({ name: msg.user });
       return {
         ...msg.toObject(),
+        channel: msg.channelId, // Ajouter le champ channel pour la compatibilité frontend
         avatar: user?.avatar || "/avatars/avatar1.png"
       };
     }));
@@ -261,16 +400,31 @@ io.on("connection", (socket) => {
 
   // Quitter un salon
   socket.on("leave_channel", (data) => {
+    console.log("🚪 Demande de sortie de salon reçue:", data);
     const { channelId } = typeof data === 'string' ? { channelId: data } : data;
     if (channelId) {
       const roomName = `channel_${channelId}`;
+      console.log("👤 User leaving channel:", channelId, "Socket ID:", socket.id);
       socket.leave(roomName);
+      const roomSize = io.sockets.adapter.rooms.get(roomName)?.size || 0;
+      console.log("✅ User left channel:", roomName, "Total clients in room:", roomSize);
+    } else {
+      console.log("❌ ChannelId manquant pour quitter le salon");
     }
   });
 
   // Demander l'historique des messages d'un salon
   socket.on("get_message_history", async (data) => {
-    const { channelId, page = 0, limit = 50 } = typeof data === 'string' ? { channelId: data } : data;
+    let channelId, page = 0, limit = 50;
+    
+    if (typeof data === 'string') {
+      channelId = data;
+    } else {
+      channelId = data.channelId || data.channel;
+      page = data.page || 0;
+      limit = data.limit || 50;
+    }
+    
     if (!channelId) return;
     console.log("Demande d'historique pour le salon:", channelId, "page:", page, "limit:", limit);
     
@@ -288,6 +442,7 @@ io.on("connection", (socket) => {
         const user = await User.findOne({ name: msg.user });
         return {
           ...msg.toObject(),
+          channel: msg.channelId, // Ajouter le champ channel pour la compatibilité frontend
           avatar: user?.avatar || "/avatars/avatar1.png"
         };
       }));
@@ -312,11 +467,19 @@ io.on("connection", (socket) => {
   // Réception d'un message dans un salon
   socket.on("message", async (data) => {
     // data : { user, content, channelId, serverId, replyTo? }
-    if (!data || !data.user || !data.content || !data.channelId || !data.serverId) return;
-    console.log("Message reçu du client:", data);
+    if (!data || !data.user || !data.content || !data.channelId || !data.serverId) {
+      console.log("❌ Message invalide reçu:", data);
+      return;
+    }
+    console.log("✅ Message reçu du client:", data);
     
     const roomName = `channel_${data.channelId}`;
-    console.log("Nombre de clients dans la room", roomName, ":", io.sockets.adapter.rooms.get(roomName)?.size || 0);
+    const roomSize = io.sockets.adapter.rooms.get(roomName)?.size || 0;
+    console.log("📊 Nombre de clients dans la room", roomName, ":", roomSize);
+    
+    if (roomSize === 0) {
+      console.log("⚠️  Aucun client dans la room, le message ne sera pas diffusé");
+    }
     
     try {
       const messageData = { 
@@ -339,11 +502,67 @@ io.on("connection", (socket) => {
       const user = await User.findOne({ name: data.user });
       const enrichedMsg = {
         ...msg.toObject(),
+        channel: data.channelId, // Ajouter le champ channel pour la compatibilité frontend
+        channelId: data.channelId, // Ajouter le champ channelId pour la compatibilité
+        serverId: data.serverId, // Ajouter le serverId pour les notifications
         avatar: user?.avatar || "/avatars/avatar1.png"
       };
       console.log("Broadcasting message to channel:", roomName);
       console.log("Clients in room:", io.sockets.adapter.rooms.get(roomName)?.size || 0);
-      io.to(roomName).emit("message", enrichedMsg); // broadcast dans le salon
+      
+      // Diffuser le message dans le salon
+      io.to(roomName).emit("message", enrichedMsg);
+      
+      // DIFFUSION GLOBALE : Diffuser aussi à tous les utilisateurs du serveur pour les notifications
+      // Créer une room pour le serveur si elle n'existe pas
+      const serverRoomName = `server_${data.serverId}`;
+      console.log("Broadcasting message to server:", serverRoomName);
+      io.to(serverRoomName).emit("message", enrichedMsg);
+      
+      // Gérer les notifications et compteurs de messages non lus
+      try {
+        // Récupérer tous les utilisateurs qui ont accès à ce salon
+        const channel = await Channel.findById(data.channelId);
+        if (channel) {
+          const allUsers = [];
+          
+          // Ajouter le propriétaire du salon
+          if (channel.owner) {
+            allUsers.push(channel.owner);
+          }
+          
+          // Ajouter tous les membres du salon
+          if (channel.members) {
+            channel.members.forEach(member => {
+              if (member.email && !allUsers.includes(member.email)) {
+                allUsers.push(member.email);
+              }
+            });
+          }
+          
+          // Ajouter tous les membres du serveur
+          const server = await ServerModel.findById(data.serverId);
+          if (server && server.members) {
+            server.members.forEach(member => {
+              if (member.email && !allUsers.includes(member.email)) {
+                allUsers.push(member.email);
+              }
+            });
+          }
+          
+          console.log("📧 Utilisateurs à notifier:", allUsers);
+          
+          // Incrémenter les compteurs pour tous les utilisateurs sauf l'expéditeur
+          for (const userId of allUsers) {
+            if (userId !== userEmail) {
+              await incrementUnreadCount(userId, data.channelId, data.serverId);
+              console.log("📈 Compteur incrémenté pour:", userId);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("❌ Erreur lors de la gestion des notifications:", error);
+      }
     } catch (error) {
       console.error("❌ Erreur lors de l'enregistrement du message:", error);
     }
@@ -351,19 +570,21 @@ io.on("connection", (socket) => {
 
   // Écouter la suppression de messages
   socket.on("message_deleted", async (data) => {
-    // data : { messageId, channel }
-    if (!data || !data.messageId || !data.channel) return;
+    // data : { messageId, channelId ou channel }
+    if (!data || !data.messageId || (!data.channelId && !data.channel)) return;
+    
+    const channelId = data.channelId || data.channel;
     
     try {
       const message = await Message.findById(data.messageId);
       if (!message) return;
       
       // Vérifier les permissions (propriétaire du message ou modérateur/admin)
-      const canDelete = message.user === userEmail || await checkPermission(userEmail, data.channel, 'canDeleteMessages');
+      const canDelete = message.user === userEmail || await checkPermission(userEmail, channelId, 'canDeleteMessages');
       if (!canDelete) return;
       
       await Message.findByIdAndDelete(data.messageId);
-      io.to(data.channel).emit("message_deleted", { messageId: data.messageId });
+      io.to(channelId).emit("message_deleted", { messageId: data.messageId });
     } catch (error) {
       console.error("Erreur lors de la suppression du message:", error);
     }
@@ -371,8 +592,10 @@ io.on("connection", (socket) => {
 
   // Écouter l'édition de messages
   socket.on("message_edited", async (data) => {
-    // data : { messageId, content, channel }
-    if (!data || !data.messageId || !data.content || !data.channel) return;
+    // data : { messageId, content, channelId ou channel }
+    if (!data || !data.messageId || !data.content || (!data.channelId && !data.channel)) return;
+    
+    const channelId = data.channelId || data.channel;
     
     try {
       const message = await Message.findById(data.messageId);
@@ -399,11 +622,14 @@ io.on("connection", (socket) => {
       // Enrichir le message avec l'avatar
       const enrichedMessage = {
         ...message.toObject(),
+        channel: message.channelId, // Ajouter le champ channel pour la compatibilité frontend
+        channelId: message.channelId, // Ajouter le champ channelId pour la compatibilité
+        serverId: message.serverId, // Ajouter le serverId pour les notifications
         avatar: user?.avatar || "/avatars/avatar1.png"
       };
       
-      console.log("Message mis à jour, envoi aux clients du salon:", data.channel);
-      io.to(data.channel).emit("message_updated", enrichedMessage);
+      console.log("Message mis à jour, envoi aux clients du salon:", channelId);
+      io.to(channelId).emit("message_updated", enrichedMessage);
     } catch (error) {
       console.error("Erreur lors de l'édition du message:", error);
     }
@@ -411,8 +637,10 @@ io.on("connection", (socket) => {
 
   // Écouter les réactions aux messages
   socket.on("message_reaction", async (data) => {
-    // data : { messageId, emoji, channel, action: 'add' | 'remove' }
-    if (!data || !data.messageId || !data.emoji || !data.channel) return;
+    // data : { messageId, emoji, channelId ou channel, action: 'add' | 'remove' }
+    if (!data || !data.messageId || !data.emoji || (!data.channelId && !data.channel)) return;
+    
+    const channelId = data.channelId || data.channel;
     
     try {
       const message = await Message.findById(data.messageId);
@@ -455,10 +683,11 @@ io.on("connection", (socket) => {
       const user = await User.findOne({ name: message.user });
       const enrichedMessage = {
         ...message.toObject(),
+        channel: message.channelId, // Ajouter le champ channel pour la compatibilité frontend
         avatar: user?.avatar || "/avatars/avatar1.png"
       };
       
-      io.to(data.channel).emit("message_updated", enrichedMessage);
+      io.to(channelId).emit("message_updated", enrichedMessage);
     } catch (error) {
       console.error("Erreur lors de la gestion de la réaction:", error);
     }
@@ -472,7 +701,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    console.log("User disconnected: " + socket.id);
+    // User disconnected
     if (userEmail) {
       // Mettre à jour le statut hors ligne
       User.findOneAndUpdate({ email: userEmail }, { status: "offline" }).then(async () => {
@@ -1461,11 +1690,17 @@ app.get("/channels/:channelId/members", async (req, res) => {
   const { channelId } = req.params;
   const { userEmail } = req.query;
   
+  console.log("🔍 Demande de membres pour le salon:", channelId, "par l'utilisateur:", userEmail);
+  
   if (!userEmail) return res.status(400).json({ error: "Email utilisateur requis" });
   
   try {
     const channel = await Channel.findById(channelId);
-    if (!channel) return res.status(404).json({ error: "Salon non trouvé" });
+    if (!channel) {
+      console.log("❌ Salon non trouvé pour l'ID:", channelId);
+      return res.status(404).json({ error: "Salon non trouvé" });
+    }
+    console.log("✅ Salon trouvé:", channel.name, "dans le serveur:", channel.serverId);
     
     // Vérifier que l'utilisateur a accès au serveur
     const server = await ServerModel.findById(channel.serverId);
@@ -1511,6 +1746,36 @@ app.get("/channels/:channelId/members", async (req, res) => {
   }
 });
 
+// Route de debug : vérifier si un salon existe
+app.get("/debug/channels/:channelId", async (req, res) => {
+  const { channelId } = req.params;
+  
+  try {
+    const channel = await Channel.findById(channelId);
+    if (!channel) {
+      return res.json({ exists: false, error: "Salon non trouvé" });
+    }
+    
+    const server = await ServerModel.findById(channel.serverId);
+    return res.json({
+      exists: true,
+      channel: {
+        id: channel._id,
+        name: channel.name,
+        serverId: channel.serverId,
+        type: channel.type
+      },
+      server: server ? {
+        id: server._id,
+        name: server.name,
+        owner: server.owner
+      } : null
+    });
+  } catch (error) {
+    return res.json({ exists: false, error: error.message });
+  }
+});
+
 // Route : récupérer les messages d'un salon
 app.get("/channels/:channelId/messages", async (req, res) => {
   const { channelId } = req.params;
@@ -1531,10 +1796,9 @@ app.get("/channels/:channelId/messages", async (req, res) => {
     
     const skip = parseInt(page) * parseInt(limit);
     const messages = await Message.find({ channelId })
-      .sort({ timestamp: -1 })
+      .sort({ timestamp: 1 })  // Tri chronologique (plus ancien en premier)
       .skip(skip)
-      .limit(parseInt(limit))
-      .sort({ timestamp: 1 });
+      .limit(parseInt(limit));
     
     const totalCount = await Message.countDocuments({ channelId });
     const hasMore = skip + parseInt(limit) < totalCount;
@@ -1811,6 +2075,39 @@ app.get("/link-preview", async (req, res) => {
   } catch (error) {
     console.error('Erreur lors de la récupération de la preview:', error);
     res.status(500).json({ error: "Impossible de récupérer les métadonnées du lien" });
+  }
+});
+
+// Route : récupérer les compteurs de messages non lus
+app.get("/users/:userEmail/unread-counts", async (req, res) => {
+  const { userEmail } = req.params;
+  
+  if (!userEmail) return res.status(400).json({ error: "Email requis" });
+  
+  try {
+    const counts = await getUnreadCounts(userEmail);
+    res.json({ unreadCounts: counts });
+  } catch (error) {
+    console.error("Erreur lors de la récupération des compteurs:", error);
+    res.status(500).json({ error: "Erreur lors de la récupération des compteurs" });
+  }
+});
+
+// Route : marquer un salon comme lu
+app.post("/channels/:channelId/mark-read", async (req, res) => {
+  const { channelId } = req.params;
+  const { userEmail, serverId, messageId } = req.body;
+  
+  if (!userEmail || !serverId) {
+    return res.status(400).json({ error: "Email et serverId requis" });
+  }
+  
+  try {
+    await markMessageAsRead(userEmail, channelId, serverId, messageId);
+    res.json({ message: "Salon marqué comme lu" });
+  } catch (error) {
+    console.error("Erreur lors du marquage comme lu:", error);
+    res.status(500).json({ error: "Erreur lors du marquage comme lu" });
   }
 });
 

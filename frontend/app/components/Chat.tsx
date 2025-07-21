@@ -274,7 +274,7 @@ export default function Chat({ channel, channels, setChannels, fetchChannels, se
               const showDivider = isNewMessage && index === 0;
               
               return (
-                <div key={msg._id}>
+                <div key={`${msg._id}-${msg.timestamp}-${index}`}>
                   {/* Ligne de séparation pour les nouveaux messages */}
                   {showDivider && (
                     <div className="flex items-center gap-3 my-4">

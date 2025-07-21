@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useSocket } from "./hooks/useSocket";
 import { useNotifications } from "./hooks/useNotifications";
+import { notificationService } from "./services/notificationService";
 import Chat from "./components/chat/Chat";
 import ServerList from "./components/servers/ServerList";
 import ServerChannelList from "./components/servers/ServerChannelList";
@@ -44,9 +45,15 @@ export default function Home() {
   // Utiliser les nouveaux hooks
   const socketConfig = useMemo(() => ({
     session,
+    selectedServer,
     selectedChannel,
-    channels: currentChannels
-  }), [session, selectedChannel, currentChannels]);
+    servers,
+    channels: currentChannels, // Passer les salons pour les permissions
+    onServersLoaded: (newServers: any[]) => {
+      console.log("🔔 Page: Serveurs reçus du websocket:", newServers);
+      setServers(newServers);
+    }
+  }), [session, selectedServer, selectedChannel, servers, currentChannels]);
 
   const { socket, isConnected, sendMessage, deleteMessage } = useSocket(socketConfig);
 
@@ -54,16 +61,54 @@ export default function Home() {
     toasts, 
     settings, 
     unreadCounts,
+    unreadMessages,
     addToast, 
     removeToast, 
     updateSettings, 
     requestBrowserPermission,
-    resetUnreadCount
+    initializeAudioContext,
+    loadUnreadCounts,
+    markChannelAsRead,
+    resetUnreadCount,
+    resetUnreadMessages
   } = useNotifications();
+
+
+
+  // Initialiser l'AudioContext lors de la première interaction utilisateur
+  useEffect(() => {
+    const handleUserInteraction = () => {
+      initializeAudioContext();
+      // Retirer les listeners après la première interaction
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('keydown', handleUserInteraction);
+      document.removeEventListener('touchstart', handleUserInteraction);
+    };
+
+    // Ajouter des listeners pour détecter la première interaction
+    document.addEventListener('click', handleUserInteraction, { once: true });
+    document.addEventListener('keydown', handleUserInteraction, { once: true });
+    document.addEventListener('touchstart', handleUserInteraction, { once: true });
+
+    return () => {
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('keydown', handleUserInteraction);
+      document.removeEventListener('touchstart', handleUserInteraction);
+    };
+  }, [initializeAudioContext]);
+
+
 
   // Référence pour addToast pour éviter les dépendances
   const addToastRef = useRef(addToast);
   addToastRef.current = addToast;
+
+  // Charger les compteurs de messages non lus au démarrage
+  useEffect(() => {
+    if (session?.user?.email) {
+      loadUnreadCounts(session.user.email);
+    }
+  }, [session?.user?.email, loadUnreadCounts]);
 
   // Charger les serveurs
   const fetchServers = useCallback(async (userEmail: string) => {
@@ -72,6 +117,9 @@ export default function Home() {
       if (response.ok) {
         const serversData = await response.json();
         setServers(serversData);
+        
+        // Charger tous les salons de tous les serveurs pour les permissions de notification
+        await fetchAllChannels(serversData, userEmail);
       } else {
         console.error("Erreur lors du chargement des serveurs:", response.status);
         addToastRef.current("Erreur lors du chargement des serveurs", "error");
@@ -81,6 +129,61 @@ export default function Home() {
       addToastRef.current("Erreur lors du chargement des serveurs", "error");
     }
   }, []);
+
+  // Charger tous les salons de tous les serveurs pour les permissions
+  const fetchAllChannels = useCallback(async (servers: Server[], userEmail: string) => {
+    try {
+      const allChannels: any[] = [];
+      
+      for (const server of servers) {
+        const channelsResponse = await fetch(`http://localhost:4000/servers/${server._id}/channels?userEmail=${encodeURIComponent(userEmail)}`);
+        if (channelsResponse.ok) {
+          const channels = await channelsResponse.json();
+          allChannels.push(...channels);
+        }
+      }
+      
+      // Mettre à jour le service de notification avec tous les salons
+      if (allChannels.length > 0) {
+        notificationService.updateUserChannels(allChannels);
+      }
+      
+      // Marquer automatiquement tous les canaux comme lus au chargement initial
+      // Cela évite que les anciens compteurs persistent après rechargement
+      for (const server of servers) {
+        for (const channel of allChannels.filter(ch => ch.serverId === server._id)) {
+          await markChannelAsRead(userEmail, channel._id, server._id, undefined, true);
+        }
+      }
+      
+      // Recharger les compteurs après avoir marqué tous les canaux comme lus
+      await loadUnreadCounts(userEmail);
+    } catch (error) {
+      console.error("Erreur lors du chargement de tous les salons:", error);
+    }
+  }, [markChannelAsRead, loadUnreadCounts]);
+
+  // Gérer la sélection de salon et réinitialiser les messages non lus
+  const handleSelectChannel = useCallback((channelId: string, isAutoSelect: boolean = false) => {
+    setSelectedChannel(channelId);
+    
+    // Mettre à jour la position dans le service de notification
+    if (selectedServer) {
+      notificationService.updateCurrentPosition(selectedServer, channelId);
+    }
+    
+    // Marquer le salon comme lu dans le backend seulement si ce n'est pas une sélection automatique
+    if (session?.user?.email && selectedServer && !isAutoSelect) {
+      markChannelAsRead(session.user.email, channelId, selectedServer, undefined, true); // Réinitialiser le compteur
+      // Réinitialiser le compteur local pour ce serveur
+      resetUnreadCount(selectedServer);
+    } else if (session?.user?.email && selectedServer && isAutoSelect) {
+      // Pour la sélection automatique, marquer comme lu mais conserver le compteur
+      markChannelAsRead(session.user.email, channelId, selectedServer, undefined, false);
+    }
+    // Réinitialiser les messages non lus pour ce salon
+    resetUnreadMessages(channelId);
+  }, [resetUnreadMessages, markChannelAsRead, session?.user?.email, selectedServer, resetUnreadCount]);
 
   // Charger un serveur avec ses salons et permissions
   const fetchServerData = useCallback(async (serverId: string, userEmail: string) => {
@@ -94,7 +197,7 @@ export default function Home() {
         // Sélectionner automatiquement le premier salon textuel
         const firstTextChannel = channels.find((ch: Channel) => ch.type === 'text');
         if (firstTextChannel) {
-          setSelectedChannel(firstTextChannel._id);
+          handleSelectChannel(firstTextChannel._id, true); // Sélection automatique
         }
       } else {
         console.error("Erreur lors du chargement des canaux:", channelsResponse.status);
@@ -125,23 +228,35 @@ export default function Home() {
     }
   }, []);
 
-  // Charger les serveurs au changement de session
+  // Charger les serveurs au changement de session (maintenant géré par le websocket)
   useEffect(() => {
     if (session?.user?.email) {
-      fetchServers(session.user.email);
+      // Les serveurs seront chargés automatiquement par le websocket
+      // fetchServers(session.user.email);
     }
-  }, [session?.user?.email, fetchServers]);
+  }, [session?.user?.email]);
 
   // Gérer la sélection d'un serveur
   const handleSelectServer = useCallback((serverId: string) => {
+    // Activer le mode sélection automatique dès le début
+    notificationService.setAutoSelecting(true);
+    
     setSelectedServer(serverId);
     setSelectedChannel(null);
     setCurrentServer(null);
     setCurrentChannels([]);
     
+    // Mettre à jour la position dans le service de notification (pas de salon sélectionné)
+    notificationService.updateCurrentPosition(serverId, '');
+    
     if (serverId !== "dm" && session?.user?.email) {
       fetchServerData(serverId, session.user.email);
     }
+    
+    // Désactiver le mode sélection automatique après un délai plus long
+    setTimeout(() => {
+      notificationService.setAutoSelecting(false);
+    }, 3000);
   }, [session?.user?.email, fetchServerData]);
 
   // Gérer la création de serveur
@@ -197,6 +312,10 @@ export default function Home() {
         const newChannel = await response.json();
         setCurrentChannels(prev => [...prev, newChannel]);
         setSelectedChannel(newChannel._id);
+        
+        // Mettre à jour les permissions de notification avec le nouveau salon
+        notificationService.updateUserChannels([...currentChannels, newChannel]);
+        
         addToast(`Salon "${newChannel.name}" créé avec succès`, "success");
       } else {
         const error = await response.json();
@@ -208,13 +327,14 @@ export default function Home() {
   }, [selectedServer, session?.user?.email, addToast]);
 
   // Demander les permissions de notification
-  const handleRequestNotificationPermission = useCallback(async () => {
+  const handleRequestNotificationPermission = useCallback(async (): Promise<boolean> => {
     const granted = await requestBrowserPermission();
     if (granted) {
       addToast("Notifications navigateur activées", "success");
     } else {
       addToast("Notifications navigateur refusées", "warning");
     }
+    return granted;
   }, [requestBrowserPermission, addToast]);
 
   if (!session) {
@@ -240,6 +360,8 @@ export default function Home() {
         onSelectServer={handleSelectServer}
         onCreateServer={handleCreateServer}
         currentUserEmail={session.user?.email || ""}
+        unreadCounts={unreadCounts}
+        onResetUnreadCount={resetUnreadCount}
       />
 
       {/* Liste des salons du serveur */}
@@ -247,10 +369,11 @@ export default function Home() {
         server={currentServer}
         channels={currentChannels}
         selectedChannel={selectedChannel}
-        onSelectChannel={setSelectedChannel}
+        onSelectChannel={handleSelectChannel}
         onCreateChannel={handleCreateChannel}
         currentUserEmail={session.user?.email || ""}
         userPermissions={userPermissions}
+        unreadMessages={unreadMessages}
       />
 
       {/* Main Content */}
@@ -271,6 +394,8 @@ export default function Home() {
             session={session}
             socket={socket}
             onResetUnreadCount={resetUnreadCount}
+            unreadMessages={unreadMessages}
+            onResetUnreadMessages={resetUnreadMessages}
           />
         ) : selectedServer === "dm" ? (
           <div className="flex-1 flex items-center justify-center">
@@ -289,6 +414,15 @@ export default function Home() {
 
       {/* Notifications */}
       <NotificationToast toasts={toasts} removeToast={removeToast} />
+      
+      {/* Paramètres de notifications */}
+      <NotificationSettings
+        settings={settings}
+        onUpdateSettings={updateSettings}
+        onRequestPermission={handleRequestNotificationPermission}
+        onInitializeAudio={initializeAudioContext}
+      />
+
     </div>
   );
 }

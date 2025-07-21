@@ -267,8 +267,6 @@ export const TEXT_EMOJI_MAPPING: { [key: string]: string } = {
 export const replaceTextEmojis = (text: string): string => {
   let result = text;
   
-  console.log("replaceTextEmojis appelée avec:", text);
-  
   // Remplacer les emojis textuels par ordre de longueur (plus longs d'abord)
   const sortedEmojis = Object.keys(TEXT_EMOJI_MAPPING).sort((a, b) => b.length - a.length);
   
@@ -290,22 +288,10 @@ export const replaceTextEmojis = (text: string): string => {
       regex = new RegExp(`\\b${textEmoji.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
     }
     
-    // Ajouter des logs pour debug
-    console.log(`Tentative de remplacement: "${textEmoji}" → "${TEXT_EMOJI_MAPPING[textEmoji]}"`);
-    console.log(`Regex: ${regex}`);
-    console.log(`Texte avant: "${result}"`);
-    
     const newResult = result.replace(regex, TEXT_EMOJI_MAPPING[textEmoji]);
-    
-    if (newResult !== result) {
-      console.log(`Remplacement réussi: "${textEmoji}" → "${TEXT_EMOJI_MAPPING[textEmoji]}"`);
-      console.log(`Texte après: "${newResult}"`);
-    }
-    
     result = newResult;
   }
   
-  console.log("replaceTextEmojis retourne:", result);
   return result;
 };
 

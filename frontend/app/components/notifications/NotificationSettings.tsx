@@ -6,12 +6,14 @@ interface NotificationSettingsProps {
   settings: NotificationSettingsType;
   onUpdateSettings: (settings: Partial<NotificationSettingsType>) => void;
   onRequestPermission: () => Promise<boolean>;
+  onInitializeAudio?: () => void;
 }
 
 export default function NotificationSettings({ 
   settings, 
   onUpdateSettings, 
-  onRequestPermission 
+  onRequestPermission,
+  onInitializeAudio
 }: NotificationSettingsProps) {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -56,6 +58,23 @@ export default function NotificationSettings({
 
             {/* Contenu */}
             <div className="p-6 space-y-4">
+              {/* Bouton pour activer l'audio */}
+              <div className="p-3 bg-[#40444b] rounded-lg">
+                <p className="text-gray-300 text-sm mb-2">
+                  Pour activer les notifications sonores, cliquez sur le bouton ci-dessous :
+                </p>
+                <button
+                  onClick={() => {
+                    if (onInitializeAudio) {
+                      onInitializeAudio();
+                    }
+                  }}
+                  className="w-full bg-[#5865f2] hover:bg-[#4752c4] text-white font-medium py-2 px-4 rounded transition-colors"
+                >
+                  Activer les notifications sonores
+                </button>
+              </div>
+
               {/* Notifications visuelles */}
               <div className="flex items-center justify-between">
                 <div>

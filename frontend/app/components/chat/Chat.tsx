@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { socketService } from "../../services/socketService";
+import { notificationService } from "../../services/notificationService";
 
 import ChannelMembers from "../channels/ChannelMembers";
 import OnlineMembers from "../channels/OnlineMembers";
@@ -30,7 +31,7 @@ interface Message {
 }
 
 interface Props {
-  channel: string;
+  channel: string; // channelId
   serverId?: string;
   channels: any[];
   setChannels: (channels: any[]) => void;
@@ -39,7 +40,9 @@ interface Props {
   session: any;
   onUnreadCountUpdate?: (counts: Record<string, number>) => void;
   socket: any;
-  onResetUnreadCount?: (channelName: string) => void;
+  onResetUnreadCount?: (serverId: string) => void;
+  unreadMessages?: Record<string, { count: number; lastMessageId: string; lastMessageTime: string }>;
+  onResetUnreadMessages?: (channelId: string) => void;
 }
 
 export default function Chat({ 
@@ -52,7 +55,9 @@ export default function Chat({
   session, 
   onUnreadCountUpdate, 
   socket, 
-  onResetUnreadCount 
+  onResetUnreadCount,
+  unreadMessages = {},
+  onResetUnreadMessages
 }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -66,6 +71,7 @@ export default function Chat({
   const [channelUsers, setChannelUsers] = useState<any[]>([]);
   const [showMentionAutocomplete, setShowMentionAutocomplete] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [previousChannel, setPreviousChannel] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -98,56 +104,67 @@ export default function Chat({
   useEffect(() => {
     if (!socket) return;
 
+    // S'abonner aux messages pour l'affichage seulement
+    // (les notifications sont gérées globalement par useSocket)
     const unsubscribeMessage = socketService.onMessage((msg: Message) => {
-      console.log("Chat: Message reçu", msg);
+      // Afficher seulement les messages du salon actuel
       if (msg.channel === channel) {
-        console.log("Chat: Message correspond au salon actuel, ajout au state");
         setMessages(prev => {
-          console.log("Chat: Messages précédents:", prev.length);
           // Vérifier s'il y a un message temporaire à remplacer
           const hasTempMessage = prev.some(m => m._id.startsWith('temp-'));
           if (hasTempMessage) {
             // Remplacer le dernier message temporaire par le vrai message
             const withoutTemp = prev.filter(m => !m._id.startsWith('temp-'));
             const newMessages = [...withoutTemp, msg];
-            console.log("Chat: Messages après remplacement:", newMessages.length);
+            console.log("🔔 Chat: Message temporaire remplacé par le vrai message");
             return newMessages;
           } else {
-            // Ajouter le message normalement
-            const newMessages = [...prev, msg];
-            console.log("Chat: Messages après ajout:", newMessages.length);
-            return newMessages;
+            // Vérifier si le message existe déjà (éviter les doublons)
+            const messageExists = prev.some(m => m._id === msg._id);
+            if (messageExists) {
+              console.log("🔔 Chat: Message déjà présent, ignoré");
+              return prev;
+            } else {
+              // Ajouter le nouveau message à la fin (il est plus récent)
+              const newMessages = [...prev, msg];
+              console.log("🔔 Chat: Nouveau message ajouté");
+              return newMessages;
+            }
           }
         });
-      } else {
-        console.log("Chat: Message ignoré - salon différent:", msg.channel, "vs", channel);
       }
     });
 
     const unsubscribeHistory = socketService.onHistory((data: { messages: Message[], hasMore: boolean, totalCount: number, currentPage: number }) => {
-      console.log("Chat: Historique reçu", data.messages.length, "messages pour le salon:", channel);
-      console.log("Chat: Premier message:", data.messages[0]);
-      console.log("Chat: Dernier message:", data.messages[data.messages.length - 1]);
-      
       // Filtrer les messages pour ne garder que ceux du salon actuel
       const filteredHistory = data.messages.filter(msg => msg.channel === channel);
-      console.log("Chat: Messages filtrés pour le salon", channel, ":", filteredHistory.length);
-      console.log("Chat: Messages filtrés:", filteredHistory);
       
       if (data.currentPage === 0) {
-        // Première page - remplacer tous les messages sauf les nouveaux
-        setMessages(prev => {
-          // Garder les nouveaux messages (ceux qui ne sont pas dans l'historique)
-          const historyIds = new Set(filteredHistory.map(m => m._id));
-          const newMessages = prev.filter(msg => !historyIds.has(msg._id));
-          return [...filteredHistory, ...newMessages];
-        });
+        // Première page - remplacer tous les messages (déjà triés par le backend)
+        setMessages(filteredHistory);
+        // Marquer tous les messages comme lus au chargement initial
+        if (filteredHistory.length > 0) {
+          const lastMessage = filteredHistory[filteredHistory.length - 1];
+          setLastReadTimestamp(new Date(lastMessage.timestamp));
+          
+          // Marquer le canal comme lu dans le backend
+          if (session?.user?.email && serverId) {
+            notificationService.markChannelAsRead(
+              session.user.email,
+              channel,
+              serverId,
+              lastMessage._id,
+              true // resetCount = true pour remettre à zéro
+            );
+          }
+        }
       } else {
-        // Pages suivantes - ajouter au début
+        // Pages suivantes - ajouter au début (messages plus anciens)
         setMessages(prev => {
           // Éviter les doublons
           const existingIds = new Set(prev.map(m => m._id));
           const newMessages = filteredHistory.filter(msg => !existingIds.has(msg._id));
+          // Ajouter les anciens messages au début
           return [...newMessages, ...prev];
         });
       }
@@ -163,14 +180,17 @@ export default function Chat({
     });
 
     const unsubscribeMessageUpdate = socketService.onMessageUpdate((updatedMessage: Message) => {
-      console.log("Chat: Message mis à jour reçu", updatedMessage);
       setMessages(prev => prev.map(msg => 
         msg._id === updatedMessage._id ? updatedMessage : msg
       ));
     });
 
+    // Rejoindre le salon pour recevoir les messages en temps réel
+    if (channel && serverId && socket) {
+      socketService.joinChannel(channel, serverId);
+    }
+
     // Demander l'historique des messages pour ce salon
-    console.log("Chat: Demande d'historique pour le salon:", channel);
     socketService.getMessageHistory(channel, 0, 50);
 
     return () => {
@@ -181,49 +201,79 @@ export default function Chat({
     };
   }, [channel, socket]);
 
-  // Réinitialiser les messages et les états quand le channel change
+  // Réinitialiser les états quand le channel change
   useEffect(() => {
-    console.log("Chat: Changement de salon vers:", channel);
-    setMessages([]);
+    // Quitter le salon précédent si on en avait un ET si c'est différent du nouveau
+    if (previousChannel && previousChannel !== channel && socket) {
+      socketService.leaveChannel(previousChannel);
+    }
+    
+    // Mettre à jour le salon précédent
+    setPreviousChannel(channel);
+    
+    // Réinitialiser les états (mais pas les messages, ils sont chargés par le premier useEffect)
     setCurrentPage(0);
     setHasMore(false);
     setTotalCount(0);
     setIsLoadingMore(false);
     setShowScrollToBottom(false);
     setShouldAutoScroll(true);
-    setLastReadTimestamp(null);
+    // Ne pas réinitialiser lastReadTimestamp ici, il sera défini quand les messages sont chargés
     setUnreadMessagesCount(0);
-  }, [channel]);
+  }, [channel, previousChannel, socket]);
 
-  // Réinitialiser le compteur de messages non lus
+  // Réinitialiser le compteur de messages non lus seulement quand on change de canal
   useEffect(() => {
-    if (channel && onResetUnreadCount) {
-      console.log("Chat: Réinitialisation du compteur pour le salon:", channel);
-      onResetUnreadCount(channel);
+    if (channel && previousChannel && channel !== previousChannel) {
+      // Marquer le canal comme lu dans le backend
+      if (session?.user?.email && serverId) {
+        notificationService.markChannelAsRead(
+          session.user.email,
+          channel,
+          serverId,
+          undefined, // pas de messageId spécifique
+          true // resetCount = true pour remettre à zéro
+        );
+      }
+      
+      if (onResetUnreadCount) {
+        onResetUnreadCount(serverId || "");
+      }
+      if (onResetUnreadMessages) {
+        onResetUnreadMessages(channel);
+      }
+      // Réinitialiser le compteur local de nouveaux messages
+      setUnreadMessagesCount(0);
     }
-  }, [channel, onResetUnreadCount]);
+  }, [channel, previousChannel, onResetUnreadCount, onResetUnreadMessages, serverId, session?.user?.email]);
 
   // Mettre à jour le timestamp de dernière lecture quand les messages changent
   useEffect(() => {
     if (messages.length > 0) {
       const lastMessage = messages[messages.length - 1];
-      setLastReadTimestamp(new Date(lastMessage.timestamp));
-      setUnreadMessagesCount(0);
+      const currentUser = session?.user?.name || session?.user?.email;
+      
+      // Si le dernier message est de l'utilisateur actuel, mettre à jour le timestamp
+      if (lastMessage.user === currentUser) {
+        setLastReadTimestamp(new Date(lastMessage.timestamp));
+        setUnreadMessagesCount(0);
+      }
     }
-  }, [messages]);
+  }, [messages, session?.user?.name, session?.user?.email]);
 
   // Gérer les nouveaux messages
   useEffect(() => {
     if (messages.length > 0 && lastReadTimestamp) {
       const newMessages = messages.filter(msg => 
-        new Date(msg.timestamp) > lastReadTimestamp
+        new Date(msg.timestamp) > lastReadTimestamp && 
+        msg.user !== (session?.user?.name || session?.user?.email)
       );
       setUnreadMessagesCount(newMessages.length);
     } else if (messages.length > 0 && !lastReadTimestamp) {
       // Si pas de timestamp de lecture, tous les messages sont considérés comme lus
       setUnreadMessagesCount(0);
     }
-  }, [messages, lastReadTimestamp]);
+  }, [messages, lastReadTimestamp, session?.user?.name, session?.user?.email]);
 
   // Charger les permissions et les utilisateurs du channel
   useEffect(() => {
@@ -256,25 +306,52 @@ export default function Chat({
         setUserPermissions(serverData.permissions);
         setIsChannelAdmin(serverData.isServerAdmin);
         setIsOwner(serverData.isOwner);
+      } else if (serverResponse.status === 404) {
+        // Le serveur n'existe pas, on peut ignorer cette erreur
+        console.warn("Serveur non trouvé pour récupérer les permissions:", serverId);
+        setUserPermissions(null);
+        setIsChannelAdmin(false);
+        setIsOwner(false);
       } else {
         console.error("Erreur lors du chargement des permissions du serveur:", serverResponse.status);
       }
     } catch (error) {
       console.error("Erreur lors du chargement des permissions:", error);
+      setUserPermissions(null);
+      setIsChannelAdmin(false);
+      setIsOwner(false);
     }
   };
 
   const fetchChannelUsers = async () => {
     try {
+      // D'abord vérifier si le canal existe
+      const debugResponse = await fetch(`http://localhost:4000/debug/channels/${channel}`);
+      if (debugResponse.ok) {
+        const debugData = await debugResponse.json();
+        if (!debugData.exists) {
+          console.warn("Canal non trouvé:", channel);
+          setChannelUsers([]);
+          return;
+        }
+      }
+
       const response = await fetch(
         `http://localhost:4000/channels/${channel}/members?userEmail=${encodeURIComponent(session?.user?.email || "")}`
       );
       if (response.ok) {
         const data = await response.json();
         setChannelUsers(data.members || []);
+      } else if (response.status === 404) {
+        // Le salon n'existe pas, on peut ignorer cette erreur
+        console.warn("Salon non trouvé pour récupérer les membres:", channel);
+        setChannelUsers([]);
+      } else {
+        console.error("Erreur lors du chargement des utilisateurs:", response.status);
       }
     } catch (error) {
       console.error("Erreur lors du chargement des utilisateurs:", error);
+      setChannelUsers([]);
     }
   };
 
@@ -304,6 +381,17 @@ export default function Chat({
       const lastMessage = messages[messages.length - 1];
       setLastReadTimestamp(new Date(lastMessage.timestamp));
       setUnreadMessagesCount(0);
+      
+      // Marquer le canal comme lu dans le backend
+      if (session?.user?.email && serverId) {
+        notificationService.markChannelAsRead(
+          session.user.email,
+          channel,
+          serverId,
+          lastMessage._id,
+          true // resetCount = true pour remettre à zéro
+        );
+      }
     }
     
     // Charger plus de messages si on est en haut et qu'il y en a plus
@@ -318,7 +406,6 @@ export default function Chat({
     
     setIsLoadingMore(true);
     const nextPage = currentPage + 1;
-    console.log("Chat: Chargement de la page", nextPage, "pour le salon:", channel);
     
     socketService.getMessageHistory(channel, nextPage, 50);
   };
@@ -327,33 +414,50 @@ export default function Chat({
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     setShouldAutoScroll(true);
+    
+    // Marquer comme lu quand on descend manuellement
+    if (unreadMessagesCount > 0 && messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      setLastReadTimestamp(new Date(lastMessage.timestamp));
+      setUnreadMessagesCount(0);
+      
+      // Marquer le canal comme lu dans le backend
+      if (session?.user?.email && serverId) {
+        notificationService.markChannelAsRead(
+          session.user.email,
+          channel,
+          serverId,
+          lastMessage._id,
+          true // resetCount = true pour remettre à zéro
+        );
+      }
+    }
   };
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || !socket) return;
+    if (!input.trim() || !socket || !serverId) return;
     
     const user = session?.user?.name || session?.user?.email || "Anonyme";
     
     // Remplacer les emojis textuels par des emojis Unicode
-    console.log("Chat: Texte original:", input);
     const processedContent = replaceTextEmojis(input);
-    console.log("Chat: Texte après remplacement:", processedContent);
     
     const messageData = { 
       user, 
       content: processedContent, 
-      channel,
+      channelId: channel,
+      serverId: serverId,
       replyTo: replyingTo?._id 
     };
-    console.log("Chat: Envoi du message", messageData);
     
     // Créer un message temporaire pour affichage immédiat
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const tempMessage: Message = {
-      _id: `temp-${Date.now()}`,
+      _id: tempId,
       user,
       content: processedContent,
-      channel,
+      channel: channel, // On garde channelId pour l'affichage
       timestamp: new Date().toISOString(),
       avatar: session?.user?.image || "/avatars/avatar1.png",
       replyTo: replyingTo?._id
@@ -361,6 +465,7 @@ export default function Chat({
     
     // Ajouter le message temporaire à l'affichage
     setMessages(prev => [...prev, tempMessage]);
+    console.log("🔔 Chat: Message temporaire ajouté avec ID:", tempId);
     
     // Envoyer le message via Socket.io
     socketService.sendMessage(messageData);
@@ -560,8 +665,13 @@ export default function Chat({
         ) : (
           <>
             {messages.map((msg, index) => {
-              const isNewMessage = !!(lastReadTimestamp && new Date(msg.timestamp) > lastReadTimestamp);
-              const showDivider = isNewMessage && index === 0;
+              const currentUser = session?.user?.name || session?.user?.email;
+              // Un message est "nouveau" s'il est plus récent que le dernier message lu ET qu'il n'est pas de l'utilisateur actuel
+              const isNewMessage = !!(lastReadTimestamp && new Date(msg.timestamp) > lastReadTimestamp && msg.user !== currentUser);
+              // Afficher le séparateur seulement pour le premier message nouveau
+              const showDivider = isNewMessage && index > 0 && !messages.slice(0, index).some(m => 
+                lastReadTimestamp && new Date(m.timestamp) > lastReadTimestamp && m.user !== currentUser
+              );
               
               // Trouver le message auquel on répond
               const replyToMessage = msg.replyTo ? messages.find(m => m._id === msg.replyTo) : null;
@@ -569,7 +679,7 @@ export default function Chat({
               const isHighlighted = highlightedMessage === msg._id;
               
               return (
-                <div key={msg._id}>
+                <div key={`${msg._id}-${msg.timestamp}-${index}`}>
                   {/* Ligne de séparation pour les nouveaux messages */}
                   {showDivider && (
                     <div className="flex items-center gap-3 my-4">
